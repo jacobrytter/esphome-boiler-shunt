@@ -1,0 +1,479 @@
+# Valve controller - PI control of a motorized 3-way return shunt for a stoker boiler
+# Hardware: LilyGO T-Display (ESP32, ST7789 135x240), DS18B20, valve position sensor,
+#           valve motor on 5 VDC: GPIO25 powers the motor, GPIO26 drives the direction optocoupler.
+# Hardware revisions:
+#   Rev 1 (this configuration): potentiometer on the valve shaft (ADC, GPIO33) and a
+#                               3.3 V relay module switching the motor supply.
+#   Rev 2 (planned):            AS5600 magnetic angle sensor (I2C, GPIO21/22) and a
+#                               logic-level MOSFET module switching the motor supply.
+# The control and motor logic lives in shunt.h.
+
+substitutions:
+  name: ventilregulator
+  friendly_name: Ventilregulator
+  invert_dir: "false"         # "true" if the valve turns the wrong way
+  motor_inverted: "false"     # "true" if the motor switch (relay module) is active LOW
+  fault_open_shunt: "false"   # sensor fault: "false" = hold position, "true" = open shunt fully
+  full_display: "false"       # "false" = only the top half of the display is used (defective panel)
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  build_path: C:/ProgramData/ESPHome/build/ventilregulator  # large folder, kept out of the repository and OneDrive
+  includes:
+    - shunt.h
+  on_boot:
+    priority: -100
+    then:
+      - lambda: |-
+          auto &c = shunt::ctl;
+          c.mv0 = id(g_mv0);
+          c.mv100 = id(g_mv100);
+          c.p.invert_dir = ${invert_dir};
+          c.p.fault_open_shunt = ${fault_open_shunt};
+          c.loaded = true;
+
+          // DS18B20: use the sensor found on the bus at boot and remember its address.
+          // If none answers, fall back to the stored address so readings resume by
+          // themselves when the sensor comes back.
+          uint64_t found = 0;
+          for (uint64_t a : id(ow_bus)->get_devices())
+            if ((a & 0xff) == 0x28) { found = a; break; }  // 0x28 = DS18B20 family code
+          if (found != 0) {
+            if (found != id(g_ds_addr)) {
+              ESP_LOGI("shunt", "DS18B20 found at 0x%016llx - address stored", (unsigned long long) found);
+              id(g_ds_addr) = found;
+            } else {
+              ESP_LOGI("shunt", "DS18B20 found at 0x%016llx", (unsigned long long) found);
+            }
+            id(return_temp)->set_address(found);
+          } else if (id(g_ds_addr) != 0) {
+            ESP_LOGW("shunt", "No DS18B20 found at boot - using stored address 0x%016llx",
+                     (unsigned long long) id(g_ds_addr));
+            id(return_temp)->set_address(id(g_ds_addr));
+          } else {
+            ESP_LOGW("shunt", "No DS18B20 found at boot and no stored address");
+          }
+
+esp32:
+  board: esp32dev
+
+logger:             # serial port 115200 baud, and over WiFi with "esphome logs"
+  level: DEBUG
+  logs:             # quiet the periodic sensor values; the "shunt" status line shows them
+    sensor: INFO
+    text_sensor: INFO
+    binary_sensor: INFO
+    component: ERROR  # "took a long time" from the display update
+
+# ---------------------------------------------------------------- Network
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # IMPORTANT: the default is to reboot after 15 min without WiFi. The controller must keep running.
+  reboot_timeout: 0s
+  # Without a connection for 5 min, the hotspot opens so WiFi can be configured from a phone.
+  # ESPHome keeps retrying the network (every 30 s) while the hotspot is open, and closes it
+  # again as soon as the connection is back.
+  ap:
+    ssid: "Shuntventil"
+    password: !secret ap_password
+    ap_timeout: 5min
+
+captive_portal:     # WiFi setup via the hotspot (see README)
+improv_serial:      # WiFi setup over USB from https://web.esphome.io
+
+api:                # Home Assistant (optional)
+  encryption:
+    key: !secret api_key
+  reboot_timeout: 0s  # the default is to reboot when Home Assistant is not connected
+
+ota:                # protected by the API encryption key
+  - platform: esphome
+
+web_server:         # http://ventilregulator.local
+  port: 80
+  version: 3
+  local: true
+
+# ---------------------------------------------------------------- Stored values
+globals:
+  - id: g_mv0        # position sensor voltage at 0 %, learned automatically
+    type: float
+    restore_value: true
+    initial_value: "0"
+  - id: g_mv100      # position sensor voltage at 100 %
+    type: float
+    restore_value: true
+    initial_value: "0"
+  - id: g_ds_addr    # last DS18B20 address found at boot (fallback when none is found)
+    type: uint64_t
+    restore_value: true
+    initial_value: "0"
+
+# ---------------------------------------------------------------- I/O
+one_wire:
+  - platform: gpio
+    id: ow_bus
+    pin: GPIO27
+
+output:
+  - platform: gpio   # motor power: relay module (rev 1) or MOSFET module (rev 2) switching 5 VDC
+    id: motor_out
+    pin:
+      number: GPIO25
+      inverted: ${motor_inverted}
+  - platform: gpio   # direction optocoupler (on = open shunt, with invert_dir: "false")
+    id: dir_out
+    pin:
+      number: GPIO26  # through 330 Ω to the optocoupler LED
+  - platform: ledc   # display backlight
+    id: backlight_pwm
+    pin: GPIO4
+
+light:
+  - platform: monochromatic
+    id: backlight
+    name: "Display backlight"
+    output: backlight_pwm
+    restore_mode: ALWAYS_ON
+    entity_category: config
+
+# ---------------------------------------------------------------- Settings
+number:
+  - platform: template
+    id: setpoint
+    name: "Setpoint"
+    unit_of_measurement: "°C"
+    min_value: 30
+    max_value: 80
+    step: 0.5
+    initial_value: 55
+    optimistic: true
+    restore_value: true
+    mode: box
+  - platform: template
+    id: kp
+    name: "Kp"
+    unit_of_measurement: "%/°C"
+    min_value: 0.1
+    max_value: 50
+    step: 0.1
+    initial_value: 4
+    optimistic: true
+    restore_value: true
+    mode: box
+    entity_category: config
+  - platform: template
+    id: ti
+    name: "Ti"
+    unit_of_measurement: "s"
+    min_value: 10
+    max_value: 5000
+    step: 10
+    initial_value: 300
+    optimistic: true
+    restore_value: true
+    mode: box
+    entity_category: config
+  - platform: template
+    id: travel
+    name: "Travel time 0-100 %"
+    unit_of_measurement: "s"
+    min_value: 2
+    max_value: 300
+    step: 0.1
+    initial_value: 5    # HH-Flo CR305: max 5 s per 90°
+    optimistic: true
+    restore_value: true
+    mode: box
+    entity_category: config
+  - platform: template
+    id: deadband
+    name: "Deadband"
+    unit_of_measurement: "%"
+    min_value: 0.5
+    max_value: 20
+    step: 0.5
+    initial_value: 2
+    optimistic: true
+    restore_value: true
+    mode: box
+    entity_category: config
+  - platform: template
+    id: manual_pos
+    name: "Manual shunt position"
+    unit_of_measurement: "%"
+    min_value: 0
+    max_value: 100
+    step: 1
+    initial_value: 0
+    optimistic: true
+    restore_value: true
+    mode: slider
+
+select:
+  - platform: template
+    id: mode
+    name: "Mode"
+    options: ["Auto", "Manual"]
+    initial_option: "Auto"
+    optimistic: true
+    restore_value: true
+
+button:
+  - platform: template
+    name: "Calibrate valve"
+    entity_category: config
+    on_press:
+      - lambda: shunt::ctl.start_calibration();
+  - platform: restart
+    name: "Restart"
+    entity_category: config
+
+# ---------------------------------------------------------------- Control
+interval:
+  # Motor control
+  - interval: 20ms     # the valve moves 1 % in 50 ms
+    then:
+      - lambda: |-
+          auto &c = shunt::ctl;
+          c.p.sp = id(setpoint).state;
+          c.p.kp = id(kp).state;
+          c.p.ti = id(ti).state;
+          c.p.travel = id(travel).state;
+          c.p.db = id(deadband).state;
+          c.p.man_pos = id(manual_pos).state;
+          auto idx = id(mode).active_index();
+          c.p.manual = idx.has_value() && *idx == 1;
+
+          c.set_sensor_mv(id(pos_adc).sample() * 1000.0f);
+          c.update(millis());
+          id(dir_out).set_state(c.dir_on());
+          id(motor_out).set_state(c.motor_on());
+
+          char ev[112];
+          while (c.next_event(ev, sizeof ev)) ESP_LOGI("shunt", "%s", ev);
+
+          if (c.cal_dirty) {
+            id(g_mv0) = c.mv0;
+            id(g_mv100) = c.mv100;
+            c.cal_dirty = false;
+          }
+          if (!std::isnan(c.new_travel)) {
+            auto call = id(travel).make_call();
+            call.set_value(c.new_travel);
+            call.perform();
+            c.new_travel = NAN;
+          }
+  # PI controller
+  - interval: 10s
+    then:
+      - lambda: |-
+          auto &c = shunt::ctl;
+          c.tick(id(return_temp).state, 10.0f);
+          // Status line for debugging
+          ESP_LOGI("shunt", "T=%.2f SP=%.1f | out=%.1f%% P=%.1f I=%.1f | pos=%.1f%% "
+                   "sensor=%.0fmV (0%%=%.0f 100%%=%.0f) | coast=%.2f%% dead=%ums | %s | starts=%u",
+                   c.temp(), c.p.sp, c.out(), c.p_term(), c.integ(), c.pos(),
+                   c.sensor_mv(), c.mv0, c.mv100, c.lead(), (unsigned) c.dead_ms(),
+                   c.state_text(), (unsigned) c.starts());
+
+# ---------------------------------------------------------------- Measurements
+sensor:
+  - platform: dallas_temp
+    id: return_temp
+    name: "Return temperature"
+    # No fixed address: the sensor is searched for at every boot. The address found is
+    # stored (g_ds_addr) and used as a fallback when no sensor answers at boot (see on_boot).
+    resolution: 12
+    update_interval: 10s
+
+  - platform: adc      # position sensor (potentiometer / AS5600 OUT), read by the motor control
+    id: pos_adc
+    pin: GPIO33        # MUST be ADC1 (GPIO32-39); ADC2 does not work with WiFi
+    attenuation: 12db
+    samples: 16
+    update_interval: never
+    internal: true
+
+  - platform: template
+    name: "Shunt position"
+    unit_of_measurement: "%"
+    accuracy_decimals: 0
+    update_interval: 10s
+    lambda: return shunt::ctl.pos();
+  - platform: template
+    name: "Shunt target"
+    unit_of_measurement: "%"
+    accuracy_decimals: 0
+    update_interval: 10s
+    lambda: return shunt::ctl.out();
+  - platform: template
+    name: "P term"
+    unit_of_measurement: "%"
+    accuracy_decimals: 1
+    update_interval: 10s
+    entity_category: diagnostic
+    lambda: return shunt::ctl.p_term();
+  - platform: template
+    name: "I term"
+    unit_of_measurement: "%"
+    accuracy_decimals: 1
+    update_interval: 10s
+    entity_category: diagnostic
+    lambda: return shunt::ctl.integ();
+  - platform: template
+    name: "Position sensor"
+    unit_of_measurement: "mV"
+    accuracy_decimals: 0
+    update_interval: 10s
+    entity_category: diagnostic
+    lambda: return shunt::ctl.sensor_mv();
+  - platform: template
+    name: "Position sensor 0 %"
+    unit_of_measurement: "mV"
+    accuracy_decimals: 0
+    update_interval: 60s
+    entity_category: diagnostic
+    lambda: return shunt::ctl.mv0;
+  - platform: template
+    name: "Position sensor 100 %"
+    unit_of_measurement: "mV"
+    accuracy_decimals: 0
+    update_interval: 60s
+    entity_category: diagnostic
+    lambda: return shunt::ctl.mv100;
+  - platform: template
+    name: "Coast-down"
+    unit_of_measurement: "%"
+    accuracy_decimals: 2
+    update_interval: 60s
+    entity_category: diagnostic
+    lambda: return shunt::ctl.lead();
+  - platform: template
+    name: "Dead time"
+    unit_of_measurement: "ms"
+    accuracy_decimals: 0
+    update_interval: 60s
+    entity_category: diagnostic
+    lambda: return shunt::ctl.dead_ms();
+  - platform: template
+    name: "Motor starts"
+    unit_of_measurement: "starts"
+    accuracy_decimals: 0
+    state_class: total_increasing
+    update_interval: 60s
+    entity_category: diagnostic
+    lambda: return shunt::ctl.starts();
+  - platform: wifi_signal
+    name: "WiFi signal"
+    update_interval: 60s
+    entity_category: diagnostic
+
+text_sensor:
+  - platform: template
+    name: "Status"
+    update_interval: 5s
+    lambda: return {shunt::ctl.state_text()};
+  - platform: template
+    name: "Calibration"
+    update_interval: 5s
+    entity_category: diagnostic
+    lambda: return {shunt::ctl.cal_msg()};
+  - platform: template
+    name: "Temperature sensor address"
+    update_interval: 60s
+    entity_category: diagnostic
+    lambda: |-
+      char buf[19];
+      snprintf(buf, sizeof buf, "0x%016llx", (unsigned long long) id(g_ds_addr));
+      return {buf};
+  - platform: wifi_info
+    ip_address:
+      id: wifi_ip
+      name: "IP address"
+      entity_category: diagnostic
+
+binary_sensor:
+  - platform: template
+    name: "Sensor fault"
+    device_class: problem
+    lambda: return shunt::ctl.sensor_fault();
+  - platform: template
+    name: "Valve fault"
+    device_class: problem
+    lambda: return shunt::ctl.valve_fault();
+  - platform: template
+    name: "Position sensor OK"
+    entity_category: diagnostic
+    lambda: return shunt::ctl.use_sensor();
+  - platform: gpio     # right-hand button on the T-Display toggles the backlight
+    pin:
+      number: GPIO35
+      inverted: true
+    id: button_right
+    internal: true
+    on_press:
+      - light.toggle: backlight
+
+# ---------------------------------------------------------------- Display
+spi:
+  clk_pin: GPIO18
+  mosi_pin: GPIO19
+
+font:
+  - file: "gfonts://Roboto@500"
+    id: f_big
+    size: 34
+    glyphs: " -.%°C0123456789"
+  - file: "gfonts://Roboto@500"
+    id: f_mid
+    size: 20
+    glyphsets: [GF_Latin_Core]
+
+color:
+  - id: c_temp
+    red: 100%
+    green: 45%
+    blue: 0%
+
+display:
+  - platform: mipi_spi
+    model: T-DISPLAY
+    cs_pin: GPIO5
+    dc_pin: GPIO16
+    reset_pin: GPIO23
+    rotation: 90       # landscape: 240 x 135
+    color_depth: 8     # whole screen in one buffer (32 kB)
+    buffer_size: 100%
+    update_interval: 2s
+    lambda: |-
+      auto &c = shunt::ctl;
+      const int W = it.get_width();
+      const bool full = ${full_display};
+
+      // IP address text, or a hint when not connected
+      std::string ip = wifi::global_wifi_component->is_connected()
+                           ? "IP " + id(wifi_ip).state : std::string("No WiFi");
+
+      // Line 1: return temperature (orange) and shunt position (white)
+      float t = c.temp();
+      if (std::isnan(t)) it.print(0, 0, id(f_big), id(c_temp), "--.-°C");
+      else               it.printf(0, 0, id(f_big), id(c_temp), "%.1f°C", t);
+      it.printf(W, 0, id(f_big), Color::WHITE, TextAlign::TOP_RIGHT, "%.0f%%", c.pos());
+
+      // Line 2: setpoint and status (red on fault). With only the top half usable,
+      // the IP address replaces this line every third update (2 of every 6 s).
+      static uint32_t n = 0;
+      n++;
+      if (!full && n % 3 == 0) {
+        it.print(0, 40, id(f_mid), Color::WHITE, ip.c_str());
+      } else {
+        it.printf(0, 40, id(f_mid), Color::WHITE, "SP %.1f°C", c.p.sp);
+        it.printf(W, 40, id(f_mid), c.any_fault() ? Color(255, 0, 0) : Color::WHITE,
+                  TextAlign::TOP_RIGHT, "%s", c.state_text());
+      }
+
+      // Line 3 (full display only): IP address
+      if (full) it.print(0, 70, id(f_mid), Color::WHITE, ip.c_str());
