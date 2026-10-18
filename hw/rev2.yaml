@@ -1,0 +1,63 @@
+# Rev 2 position sensor: AS5600 magnetic angle sensor over I2C.
+# Module: VCC on 3.3 V, GND, SDA -> GPIO21, SCL -> GPIO22, DIR to GND, OUT and GPO open.
+# A diametrically magnetized magnet on the valve shaft, 1-1.5 mm below the chip.
+# The raw angle (0-360°) is used; the end points are learned by calibration, and the
+# controller handles the wrap at 360°, so the magnet may sit at any angle.
+
+substitutions:
+  pos_unit: "°"
+  pos_decimals: "1"
+
+i2c:
+  sda: GPIO21
+  scl: GPIO22
+  frequency: 100kHz    # about 20 cm of cable close to the motor
+
+as5600:
+  id: as5600_hub       # DIR is tied to GND on the module; the defaults are fine
+
+globals:
+  - id: g_magnet       # last AS5600 magnet status, -1 = no answer on I2C
+    type: int
+    initial_value: "-1"
+
+sensor:
+  - platform: as5600
+    as5600_id: as5600_hub
+    name: "AS5600 position"
+    internal: true     # the motor control reads the raw angle itself
+    update_interval: 10s
+    gain:
+      name: "AS5600 gain"   # automatic gain: 0-128 at 3.3 V, mid-range = right air gap
+    magnitude:
+      name: "AS5600 magnitude"
+
+script:
+  - id: read_position  # called every 20 ms by the motor control
+    then:
+      - lambda: |-
+          auto &c = shunt::ctl;
+          c.cfg = shunt::SENSOR_AS5600;
+          auto raw = id(as5600_hub).read_raw_position();
+          if (!raw.has_value()) {
+            id(g_magnet) = -1;
+            c.set_sensor(NAN);
+            return;
+          }
+          int st = id(as5600_hub).read_magnet_status();
+          id(g_magnet) = st;
+          bool detected = st & 0b100;  // MD bit: magnet detected
+          c.set_sensor(detected ? (*raw & 0x0fff) * (360.0f / 4096.0f) : NAN);
+
+text_sensor:
+  - platform: template
+    name: "Magnet"
+    update_interval: 5s
+    entity_category: diagnostic
+    lambda: |-
+      int st = id(g_magnet);
+      if (st < 0)          return {"No answer on I2C"};
+      if (!(st & 0b100))   return {"Not detected"};
+      if (st & 0b010)      return {"Too weak"};
+      if (st & 0b001)      return {"Too strong"};
+      return {"OK"};

@@ -34,37 +34,63 @@ struct Params {
   bool fault_open_shunt = false;  // sensor fault: false = hold position, true = open shunt
 };
 
+// Position sensor characteristics, in the sensor's own unit. The YAML selects one per
+// hardware revision.
+struct SensorCfg {
+  const char* unit;
+  float min_valid, max_valid;  // reading outside this range = sensor disconnected
+  float min_span;              // minimum difference between 0 % and 100 %
+  float stall_delta;           // change below this = shaft is not moving
+  uint32_t stall_ms;           // this long without movement = end stop reached
+  float learn_delta;           // store a learned end point only when it moved more than this
+  float wrap;                  // the reading wraps around at this value (0 = no wrap)
+};
+// Rev 1: potentiometer on the ADC, mV. 1 MΩ to GND pulls a disconnected input to ~0 mV.
+constexpr SensorCfg SENSOR_POT = {"mV", 100, 3150, 300, 15, 1500, 20, 0};
+// Rev 2: AS5600 over I2C, degrees 0-360. The YAML passes NAN when the chip or the magnet
+// is missing. 90° of valve travel is about 1000 steps, so the stall time can be short.
+constexpr SensorCfg SENSOR_AS5600 = {"°", -1, 361, 20, 0.5f, 500, 1.0f, 360};
+
 constexpr uint32_t MIN_PULSE_MS     = 150;   // shortest motor pulse (only without position sensor)
 constexpr uint32_t DIR_SETTLE_MS    = 150;   // pause between direction output and motor output
 constexpr uint32_t REST_MS          = 1000;  // rest between two motor pulses
 constexpr float    ENDPOINT_OVERRUN = 0.25f; // extra run towards an end stop (fraction of travel time)
 constexpr float    STOP_LEAD        = 0.5f;  // initial coast-down, %; learned continuously
 constexpr float    MAX_LEAD         = 5.0f;  // largest coast-down accepted as learned
-constexpr float    SENSOR_MIN_MV    = 100;   // outside this range = position sensor disconnected
-constexpr float    SENSOR_MAX_MV    = 3150;
-constexpr float    SENSOR_MIN_SPAN  = 300;   // minimum difference between 0 % and 100 %, mV
-constexpr float    STALL_MV         = 15;    // change below this = shaft is not moving
-constexpr uint32_t STALL_MS         = 1500;  // this long without movement = end stop reached
+constexpr int      SENSOR_MAX_MISS  = 5;     // missing readings in a row before the sensor counts as gone
 constexpr uint32_t CAL_MAX_MS       = 120000;
 constexpr uint32_t BOOT_WAIT_MS     = 2000;  // wait for the position sensor before the first move
 
 class Controller {
  public:
   Params p;
-  float mv0 = 0, mv100 = 0;  // sensor end points; stored in flash by the YAML
-  bool loaded = false;       // set by the YAML once stored values are restored
-  bool cal_dirty = false;    // mv0/mv100 changed -> YAML stores them
-  float new_travel = NAN;    // travel time measured by calibration -> YAML stores it
+  SensorCfg cfg = SENSOR_POT;     // set by the YAML for the hardware revision
+  float end0 = NAN, end100 = NAN; // sensor readings at 0 % and 100 %; stored in flash by the YAML
+  bool loaded = false;            // set by the YAML once stored values are restored
+  bool cal_dirty = false;         // end0/end100 changed -> YAML stores them
+  float new_travel = NAN;         // travel time measured by calibration -> YAML stores it
 
-  void set_sensor_mv(float mv) {
-    if (std::isnan(mv)) return;
-    sensor_mv_ = std::isnan(sensor_mv_) ? mv : sensor_mv_ + 0.3f * (mv - sensor_mv_);
+  // Position sensor reading in cfg.unit; NAN = no reading
+  void set_sensor(float v) {
+    if (std::isnan(v)) {
+      if (++misses_ >= SENSOR_MAX_MISS) sensor_ = NAN;  // ride out a single failed read
+      return;
+    }
+    misses_ = 0;
+    if (std::isnan(sensor_)) {
+      sensor_ = v;
+    } else {
+      sensor_ += 0.3f * delta(v, sensor_);
+      if (cfg.wrap > 0) sensor_ = std::fmod(sensor_ + cfg.wrap, cfg.wrap);
+    }
   }
 
   bool sensor_connected() const {
-    return !std::isnan(sensor_mv_) && sensor_mv_ > SENSOR_MIN_MV && sensor_mv_ < SENSOR_MAX_MV;
+    return !std::isnan(sensor_) && sensor_ > cfg.min_valid && sensor_ < cfg.max_valid;
   }
-  bool sensor_calibrated() const { return mv0 > 0 && mv100 > 0 && std::fabs(mv100 - mv0) >= SENSOR_MIN_SPAN; }
+  bool sensor_calibrated() const {
+    return !std::isnan(end0) && !std::isnan(end100) && std::fabs(delta(end100, end0)) >= cfg.min_span;
+  }
   bool use_sensor() const { return sensor_connected() && sensor_calibrated(); }
 
   bool start_calibration() {
@@ -127,13 +153,13 @@ class Controller {
         // Restart: continue from the current position
         pos_ = sensor_pos();
         out_ = integ_ = target_ = pos_;
-        log_event("Start-up: position sensor OK (%.0f mV), continuing from %.1f %%", sensor_mv_, pos_);
+        log_event("Start-up: position sensor OK (%.1f %s), continuing from %.1f %%", sensor_, cfg.unit, pos_);
       } else {
         // Position unknown: open the shunt fully (safe start-up for the boiler)
         pos_ = 0.0f;
         out_ = integ_ = target_ = 100.0f;
-        log_event("Start-up: position sensor %s (%.0f mV) - opening the shunt fully",
-                  sensor_connected() ? "not calibrated" : "not connected", sensor_mv_);
+        log_event("Start-up: position sensor %s (%.1f %s) - opening the shunt fully",
+                  sensor_connected() ? "not calibrated" : "not connected", sensor_, cfg.unit);
       }
     }
     if (use_sensor()) pos_ = sensor_pos();
@@ -166,7 +192,7 @@ class Controller {
           starts_++;
           state_ = A_RUN;
           t_state_ = t_last_ = t_last_move_ = now;
-          last_move_mv_ = sensor_mv_;
+          last_move_val_ = sensor_;
           moved_ = false;
         }
         break;
@@ -174,8 +200,9 @@ class Controller {
         uint32_t dt = now - t_last_;
         t_last_ = now;
         if (!use_sensor()) pos_ = clampf(pos_ + dir_ * dt / (p.travel * 10.0f), 0.0f, 100.0f);
-        if (sensor_connected() && std::fabs(sensor_mv_ - last_move_mv_) > STALL_MV) {
-          last_move_mv_ = sensor_mv_;
+        if (sensor_connected() && std::isnan(last_move_val_)) last_move_val_ = sensor_;
+        if (sensor_connected() && std::fabs(delta(sensor_, last_move_val_)) > cfg.stall_delta) {
+          last_move_val_ = sensor_;
           t_last_move_ = now;
           if (!moved_) {
             // Dead time: from motor power-on until the shaft starts turning
@@ -185,7 +212,7 @@ class Controller {
           }
         }
         uint32_t elapsed = now - t_state_;
-        bool stalled = sensor_connected() && elapsed > 1000 + dead_ms_ && now - t_last_move_ > STALL_MS;
+        bool stalled = sensor_connected() && elapsed > 1000 + dead_ms_ && now - t_last_move_ > cfg.stall_ms;
         bool timeout = elapsed >= max_ms_;
         bool stop = false;
         const char* why = "";
@@ -208,8 +235,8 @@ class Controller {
 
         if (stop) {
           motor_ = false;
-          log_event("Stop after %u ms (%s): position %.1f %%, sensor %.0f mV",
-                    (unsigned) elapsed, why, pos_, sensor_mv_);
+          log_event("Stop after %u ms (%s): position %.1f %%, sensor %.1f %s",
+                    (unsigned) elapsed, why, pos_, sensor_, cfg.unit);
           pos_stop_ = pos_;
           learn_lead_ = mode_ == RM_TARGET && use_sensor() && !valve_fault_;
           if (mode_ == RM_END) finish_end_move(stalled);
@@ -244,7 +271,7 @@ class Controller {
   float pos() const { return pos_; }
   float p_term() const { return p_term_; }
   float integ() const { return integ_; }
-  float sensor_mv() const { return sensor_mv_; }
+  float sensor() const { return sensor_; }        // position sensor reading, cfg.unit
   uint32_t starts() const { return starts_; }     // motor starts since boot
   float lead() const { return lead_; }            // learned coast-down, %
   uint32_t dead_ms() const { return dead_ms_; }   // learned dead time, ms
@@ -274,7 +301,18 @@ class Controller {
   enum RunMode  { RM_TARGET, RM_END };
   enum CalState { CAL_NONE, CAL_CLOSE, CAL_OPEN };
 
-  float sensor_pos() const { return clampf((sensor_mv_ - mv0) / (mv100 - mv0) * 100.0f, 0.0f, 100.0f); }
+  // a - b; the shortest way round when the reading wraps (the valve turns only 90°)
+  float delta(float a, float b) const {
+    float d = a - b;
+    if (cfg.wrap > 0) {
+      d = std::fmod(d, cfg.wrap);
+      if (d > cfg.wrap / 2) d -= cfg.wrap;
+      else if (d < -cfg.wrap / 2) d += cfg.wrap;
+    }
+    return d;
+  }
+
+  float sensor_pos() const { return clampf(delta(sensor_, end0) / delta(end100, end0) * 100.0f, 0.0f, 100.0f); }
 
   void log_event(const char* fmt, ...) {
     va_list args;
@@ -301,17 +339,17 @@ class Controller {
     bool opening = dir_ > 0;
     if (stalled) {
       // Learn the sensor end point; store only on a noticeable change (saves flash wear)
-      float& mv = opening ? mv100 : mv0;
-      if (std::fabs(mv - sensor_mv_) > 20 || cal_ != CAL_NONE) {
-        mv = sensor_mv_;
+      float& e = opening ? end100 : end0;
+      if (std::isnan(e) || std::fabs(delta(e, sensor_)) > cfg.learn_delta || cal_ != CAL_NONE) {
+        e = sensor_;
         cal_dirty = true;
-        log_event("End point %s learned: %.0f mV", opening ? "100 %" : "0 %", mv);
+        log_event("End point %s learned: %.1f %s", opening ? "100 %" : "0 %", e, cfg.unit);
       }
       if (cal_ == CAL_OPEN) {
         new_travel = std::max(2.0f, (t_last_move_ - t_state_) / 1000.0f);
         cal_msg_ = "Calibration OK";
-        log_event("Calibration OK: travel time %.2f s, 0 %% = %.0f mV, 100 %% = %.0f mV",
-                  new_travel, mv0, mv100);
+        log_event("Calibration OK: travel time %.2f s, 0 %% = %.1f %s, 100 %% = %.1f %s",
+                  new_travel, end0, cfg.unit, end100, cfg.unit);
       }
     }
     if (!use_sensor()) pos_ = opening ? 100.0f : 0.0f;
@@ -350,7 +388,8 @@ class Controller {
   uint32_t dead_ms_ = 0;
   bool moved_ = false, learn_lead_ = false;
   float pos_ = 0, target_ = 100.0f, run_target_ = 0;
-  float sensor_mv_ = NAN, last_move_mv_ = 0;
+  float sensor_ = NAN, last_move_val_ = NAN;
+  int misses_ = 0;
   uint32_t t_state_ = 0, t_last_ = 0, t_last_move_ = 0, max_ms_ = 0;
 
   // Event queue for the log

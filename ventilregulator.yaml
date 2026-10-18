@@ -1,12 +1,15 @@
 # Valve controller - PI control of a motorized 3-way return shunt for a stoker boiler
 # Hardware: LilyGO T-Display (ESP32, ST7789 135x240), DS18B20, valve position sensor,
 #           valve motor on 5 VDC: GPIO25 powers the motor, GPIO26 drives the direction optocoupler.
-# Hardware revisions:
-#   Rev 1 (this configuration): potentiometer on the valve shaft (ADC, GPIO33) and a
-#                               3.3 V relay module switching the motor supply.
-#   Rev 2 (planned):            AS5600 magnetic angle sensor (I2C, GPIO21/22) and a
-#                               logic-level MOSFET module switching the motor supply.
+# Hardware revisions (the position sensor part lives in hw/, selected under "packages"):
+#   Rev 1 (hw/rev1.yaml): potentiometer on the valve shaft (ADC, GPIO33) and a
+#                         3.3 V relay module switching the motor supply.
+#   Rev 2 (hw/rev2.yaml): AS5600 magnetic angle sensor (I2C, GPIO21/22) and a
+#                         logic-level MOSFET module switching the motor supply.
 # The control and motor logic lives in shunt.h.
+
+packages:
+  hardware: !include hw/rev2.yaml   # rev1.yaml for the potentiometer
 
 substitutions:
   name: ventilregulator
@@ -27,8 +30,8 @@ esphome:
     then:
       - lambda: |-
           auto &c = shunt::ctl;
-          c.mv0 = id(g_mv0);
-          c.mv100 = id(g_mv100);
+          c.end0 = id(g_end0);
+          c.end100 = id(g_end100);
           c.p.invert_dir = ${invert_dir};
           c.p.fault_open_shunt = ${fault_open_shunt};
           c.loaded = true;
@@ -98,14 +101,14 @@ web_server:         # http://ventilregulator.local
 
 # ---------------------------------------------------------------- Stored values
 globals:
-  - id: g_mv0        # position sensor voltage at 0 %, learned automatically
+  - id: g_end0       # position sensor reading at 0 % (mV or degrees), learned automatically
     type: float
     restore_value: true
-    initial_value: "0"
-  - id: g_mv100      # position sensor voltage at 100 %
+    initial_value: "NAN"
+  - id: g_end100     # position sensor reading at 100 %
     type: float
     restore_value: true
-    initial_value: "0"
+    initial_value: "NAN"
   - id: g_ds_addr    # last DS18B20 address found at boot (fallback when none is found)
     type: uint64_t
     restore_value: true
@@ -236,6 +239,7 @@ interval:
   # Motor control
   - interval: 20ms     # the valve moves 1 % in 50 ms
     then:
+      - script.execute: read_position   # hw/rev*.yaml: feeds the position sensor to shunt::ctl
       - lambda: |-
           auto &c = shunt::ctl;
           c.p.sp = id(setpoint).state;
@@ -247,7 +251,6 @@ interval:
           auto idx = id(mode).active_index();
           c.p.manual = idx.has_value() && *idx == 1;
 
-          c.set_sensor_mv(id(pos_adc).sample() * 1000.0f);
           c.update(millis());
           id(dir_out).set_state(c.dir_on());
           id(motor_out).set_state(c.motor_on());
@@ -256,8 +259,8 @@ interval:
           while (c.next_event(ev, sizeof ev)) ESP_LOGI("shunt", "%s", ev);
 
           if (c.cal_dirty) {
-            id(g_mv0) = c.mv0;
-            id(g_mv100) = c.mv100;
+            id(g_end0) = c.end0;
+            id(g_end100) = c.end100;
             c.cal_dirty = false;
           }
           if (!std::isnan(c.new_travel)) {
@@ -274,9 +277,9 @@ interval:
           c.tick(id(return_temp).state, 10.0f);
           // Status line for debugging
           ESP_LOGI("shunt", "T=%.2f SP=%.1f | out=%.1f%% P=%.1f I=%.1f | pos=%.1f%% "
-                   "sensor=%.0fmV (0%%=%.0f 100%%=%.0f) | coast=%.2f%% dead=%ums | %s | starts=%u",
+                   "sensor=%.1f%s (0%%=%.1f 100%%=%.1f) | coast=%.2f%% dead=%ums | %s | starts=%u",
                    c.temp(), c.p.sp, c.out(), c.p_term(), c.integ(), c.pos(),
-                   c.sensor_mv(), c.mv0, c.mv100, c.lead(), (unsigned) c.dead_ms(),
+                   c.sensor(), c.cfg.unit, c.end0, c.end100, c.lead(), (unsigned) c.dead_ms(),
                    c.state_text(), (unsigned) c.starts());
 
 # ---------------------------------------------------------------- Measurements
@@ -288,14 +291,6 @@ sensor:
     # stored (g_ds_addr) and used as a fallback when no sensor answers at boot (see on_boot).
     resolution: 12
     update_interval: 10s
-
-  - platform: adc      # position sensor (potentiometer / AS5600 OUT), read by the motor control
-    id: pos_adc
-    pin: GPIO33        # MUST be ADC1 (GPIO32-39); ADC2 does not work with WiFi
-    attenuation: 12db
-    samples: 16
-    update_interval: never
-    internal: true
 
   - platform: template
     name: "Shunt position"
@@ -325,25 +320,25 @@ sensor:
     lambda: return shunt::ctl.integ();
   - platform: template
     name: "Position sensor"
-    unit_of_measurement: "mV"
-    accuracy_decimals: 0
+    unit_of_measurement: ${pos_unit}
+    accuracy_decimals: ${pos_decimals}
     update_interval: 10s
     entity_category: diagnostic
-    lambda: return shunt::ctl.sensor_mv();
+    lambda: return shunt::ctl.sensor();
   - platform: template
     name: "Position sensor 0 %"
-    unit_of_measurement: "mV"
-    accuracy_decimals: 0
+    unit_of_measurement: ${pos_unit}
+    accuracy_decimals: ${pos_decimals}
     update_interval: 60s
     entity_category: diagnostic
-    lambda: return shunt::ctl.mv0;
+    lambda: return shunt::ctl.end0;
   - platform: template
     name: "Position sensor 100 %"
-    unit_of_measurement: "mV"
-    accuracy_decimals: 0
+    unit_of_measurement: ${pos_unit}
+    accuracy_decimals: ${pos_decimals}
     update_interval: 60s
     entity_category: diagnostic
-    lambda: return shunt::ctl.mv100;
+    lambda: return shunt::ctl.end100;
   - platform: template
     name: "Coast-down"
     unit_of_measurement: "%"

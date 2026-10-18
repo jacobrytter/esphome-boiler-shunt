@@ -1,0 +1,23 @@
+# Rev 1 position sensor: potentiometer on the valve shaft, read by the ADC.
+# Outer legs on 3.3 V / GND, wiper on GPIO33 with 100 nF and 1 MΩ to GND
+# (the 1 MΩ pulls a disconnected wiper to ~0 mV so it is detected).
+
+substitutions:
+  pos_unit: "mV"
+  pos_decimals: "0"
+
+sensor:
+  - platform: adc
+    id: pos_adc
+    pin: GPIO33        # MUST be ADC1 (GPIO32-39); ADC2 does not work with WiFi
+    attenuation: 12db
+    samples: 16
+    update_interval: never
+    internal: true
+
+script:
+  - id: read_position  # called every 20 ms by the motor control
+    then:
+      - lambda: |-
+          shunt::ctl.cfg = shunt::SENSOR_POT;
+          shunt::ctl.set_sensor(id(pos_adc).sample() * 1000.0f);

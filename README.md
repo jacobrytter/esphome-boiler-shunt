@@ -49,7 +49,8 @@ Den højre knap på boardet tænder og slukker skærmlyset. Alt andet står i lo
 | DS18B20 data | 27 |
 | Motorstrøm 5 VDC (MOSFET eller relæ) | 25 |
 | Optokobler: retning | 26 |
-| Stillingsføler (potentiometer / AS5600 OUT) | 33 (skal være ADC1, fordi ADC2 ikke virker med WiFi) |
+| Stillingsføler rev 1 (potentiometer) | 33 (skal være ADC1, fordi ADC2 ikke virker med WiFi) |
+| Stillingsføler rev 2 (AS5600, I²C) | 21 (SDA), 22 (SCL) |
 | Skærm (fast på boardet) | 4, 5, 16, 18, 19, 23 |
 | Knapper (fast på boardet) | 0, 35 |
 
@@ -120,7 +121,9 @@ Begge står i loggen og læres forfra efter en genstart.
 
 ### Stillingsføler
 
-**Midlertidigt: potentiometer**
+Firmwaren vælger føler i `ventilregulator.yaml` under `packages`: `hw/rev2.yaml` er AS5600 (standard), og `hw/rev1.yaml` er potentiometeret.
+
+**Rev 1: potentiometer**
 
 ```
  3,3 V ──── yderben
@@ -133,10 +136,22 @@ Begge står i loggen og læres forfra efter en genstart.
 - Monter det, så ventilens 90° vandring giver ca. 0,3–3,0 V. Under 0,1 V eller over 3,15 V opfattes som "afbrudt".
 - Retningen er ligegyldig, da kalibreringen finder ud af det.
 
-**Endeligt: AS5600 (magnetisk, uden slid)**
+**Rev 2: AS5600 over I²C (magnetisk, uden slid)**
 
-- **Anbefalet: I²C** med SDA på GPIO 21 og SCL på GPIO 22, 100 kHz og 4,7 kΩ pull-up til 3,3 V. Brug snoet ledning (SDA med GND og SCL med 3,3 V), og hold den væk fra motorledningerne. Med I²C melder AS5600 også, om magnetfeltet er for svagt, i orden eller for stærkt. Firmwaren tilpasses, når modulet er monteret.
-- Alternativt kan OUT forbindes til GPIO 33 med samme 100 nF og 1 MΩ som potentiometeret. Så skal firmwaren ikke ændres.
+```
+ AS5600   T-Display
+ VCC ──── 3,3 V   (aldrig 5 V)
+ GND ──── GND
+ SDA ──── GPIO 21
+ SCL ──── GPIO 22
+ DIR ──── GND     (må ikke svæve)
+ OUT, GPO: ikke forbundet
+```
+
+- 100 kHz med 4,7 kΩ pull-up til 3,3 V (sidder normalt på modulet). Brug snoet ledning (SDA med GND og SCL med GND), ca. 20 cm, og hold den væk fra motorledningerne.
+- Magneten kan sidde i en vilkårlig vinkel på akslen. Firmwaren bruger den rå vinkel (0–360°), og kalibreringen lærer endepunkterne. Spring-punktet ved 360° håndteres i softwaren.
+- Diagnose i webUI'en: **Magnet** (OK / Too weak / Too strong / Not detected / No answer on I2C), **AS5600 gain** (automatisk forstærkning, 0–128 ved 3,3 V; midt i området betyder en passende luftspalte, højt betyder for langt væk, lavt for tæt på) og **AS5600 magnitude** (feltstyrke). **Position sensor** viser vinklen i grader.
+- Når føleren er monteret og "Magnet" viser OK: tryk **Calibrate valve**.
 - Magneten skal være **diametralt magnetiseret**, dvs. nord og syd på hver sin halvdel af den runde side. Magneter med forsænket skruehul er næsten altid aksialt magnetiseret og virker **ikke**. Køb helst et AS5600-modul med magneten i pakken. Sådan testes en magnet: læg den med fladen opad under et kompas, eller brug en magnetometer-app, og drej magneten rundt. Følger kompasnålen med rundt, er den diametral.
 - Luftspalten mellem magnetens flade og chippens overflade skal være 0,5–3 mm, og helst ca. 1–1,5 mm. For en typisk magnet på 6 × 2,5 mm svarer det til ca. 3–3,5 mm fra centrum af chippen til centrum af magneten.
 - Magneten skal sidde centreret over chippen. Den må højst være forskudt ca. 0,25 mm til siden.
@@ -213,7 +228,7 @@ Loggen kan ses tre steder på samme tid:
 Firmware lægges ind trådløst, så Serial Monitor kan stå åben imens. Kun programmering via USB kræver, at COM4 er fri.
 
 Loggen indeholder to slags linjer fra `shunt`:
-- **Statuslinje hvert 10. sekund:** temperatur, sætpunkt, P- og I-led, stilling, føler-mV og endepunkter, indlært efterløb og dødtid, status og antal motorstarter.
+- **Statuslinje hvert 10. sekund:** temperatur, sætpunkt, P- og I-led, stilling, følerværdi (mV eller grader) og endepunkter, indlært efterløb og dødtid, status og antal motorstarter.
 - **Hændelser:** hver motorstart og hvert stop med årsag og varighed, efterløbet efter hvert stop, lærte endepunkter, kalibrering og følerfejl.
 
 ## WiFi-opsætning
@@ -285,8 +300,8 @@ Det er normalt, at shunten står på 100 % i starten af en opfyring og på 0 %, 
 | Føler afbrudt 3 målinger i træk | *FØLERFEJL*. Ventilen holder sin stilling. Sæt `fault_open_shunt: "true"`, hvis den i stedet skal åbne shunten helt. |
 | Stillingsføler afbrudt/ukalibreret | Kører videre med stillingen estimeret ud fra kørselstid. *Position sensor OK* bliver slukket. |
 | Motor kører, men akslen flytter sig ikke | *VENTILFEJL* |
-| Genstart med potentiometer | Fortsætter fra den aktuelle stilling |
-| Genstart uden potentiometer | Kører shunten helt åben og starter forfra |
+| Genstart med kalibreret stillingsføler | Fortsætter fra den aktuelle stilling |
+| Genstart uden stillingsføler | Kører shunten helt åben og starter forfra |
 | WiFi forsvinder | Reguleringen er upåvirket |
 
 ## Kendte udfordringer
