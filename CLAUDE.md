@@ -45,8 +45,8 @@ Den tidligere Arduino/PlatformIO-version er slettet efter brugerens ønske.
 
 ### Board
 - **LilyGO T-Display** (ESP32-D0WDQ6 rev 1.0, 4 MB flash, ST7789 135×240), MAC `24:6f:28:7a:44:50`, USB-chip CP210x (har været COM4).
-- Boardet er brugt og flere år gammelt. **Skærmens nederste halvdel er defekt** (grå), og **baggrundslyset er ved at være udtjent**. Brugeren regner med at skifte til et nyt T-Display. Sæt så `full_display: "true"`.
-- Det første board (CP210x på COM3) var defekt. ESP32'en svarede slet ikke over UART, heller ikke i download-tilstand. Det samme var sket ved en tidligere lejlighed. Det er lagt til side.
+- Boardet er brugt og flere år gammelt. **Skærmen er død** (2026-10-18): fladkablets forbindelse til printet svigtede (svagt lys, "snestorm"). Displayet fra board 1 blev flyttet over og virkede kortvarigt, men loddeøerne blev beskadiget ved andet forsøg, og skærmen er opgivet. Brugeren bruger webUI'en i stedet. Firmwaren driver stadig skærmen, hvilket er harmløst. Ved et nyt T-Display (almindeligt ESP32, ikke S3) sættes `full_display: "true"`.
+- Det første board (CP210x på COM3) var defekt. ESP32'en svarede slet ikke over UART, heller ikke i download-tilstand. Det samme var sket ved en tidligere lejlighed. Dets display er brugt og ødelagt, så det kan ikke bruges til reservedele længere.
 - IP-adresse på brugerens net: **192.168.4.188** (mDNS `ventilregulator.local`). WiFi-signal ca. -81 dBm (svagt).
 
 ### Pins
@@ -72,6 +72,7 @@ Undgå strapping-benene 0, 2, 5, 12 og 15 til eksternt udstyr.
 ### Følere
 - **DS18B20**, ROM-adresse `0x8200000078b1d228`. Den findes ved hver opstart, og adressen gemmes som fallback (se firmware).
 - **Stillingsføler rev 1:** potentiometer på ventilakslen, yderben på 3,3 V/GND, slæber på GPIO 33. **1 MΩ til GND mangler endnu.** Uden den svæver indgangen på ca. 140–240 mV, softwaren tror det er en føler, og der står et falsk endepunkt (mv100 ≈ 142 mV) i flash. Det overskrives ved første kalibrering.
+- **AS5600 i analog drift (fra 2026-10-18, erstatter potentiometeret):** brugeren har fået en AS5600 og monterer den nu. Den køres analogt på den nuværende firmware: VCC på **3,3 V (aldrig 5 V)**, OUT → **1 kΩ i serie** → GPIO 33 (100 nF og 1 MΩ til GND bevares), DIR til GND, SDA/SCL på GPIO 21/22 til senere I²C. Udgangen dækker 0–3,3 V over 360°, så 90° giver ca. 825 mV. Magneten drejes, så ventilen ved 50 % giver ca. 1650 mV, og spring-punktet undgås. Firmwaren klarer begge retninger (`fabs(mv100 - mv0)`), men endepunkterne skal være > 0 mV.
 - **Stillingsføler rev 2:** AS5600, helst via I²C (digital og melder magnetfeltets status). Magneten skal være **diametralt magnetiseret** (magneter med skruehul er typisk aksiale og virker ikke). Luftspalte 0,5–3 mm, helst 1–1,5 mm. Det svarer til ca. 3–3,5 mm fra centrum af chippen til centrum af magneten for en magnet på 6×2,5 mm. Centrering inden for ±0,25 mm, og kun ikke-magnetiske materialer tæt på. Test af magnet: drej den under et kompas; følger nålen med rundt, er den diametral.
 
 ### Motorafbryder
@@ -140,16 +141,16 @@ esphome logs --device 192.168.4.188 ventilregulator.yaml       # log over WiFi
 ## Status (2026-10-18)
 
 **Virker:**
-- Firmwaren kører på T-Display nr. 2 og er på WiFi. OTA, webserver og log over WiFi virker.
-- DS18B20 måler (ca. 22–25 °C i rumtemperatur) og findes ved opstart med adresse-fallback.
-- Skærmen viser temperatur, stilling, sætpunkt, status og IP-adresse i den øverste halvdel.
+- Firmwaren kører på T-Display nr. 2 og er på WiFi. OTA, webserver og log over WiFi virker. Repository'et er pushet til GitHub (`main` følger `origin/main`).
+- Skærmen er død. Al betjening og aflæsning sker via webUI'en (http://192.168.4.188).
 
 **Mangler / næste skridt:**
-1. Tilslut relæ (GPIO 25), optokobler (GPIO 26 via 330 Ω) og potentiometer (GPIO 33 med 100 nF og 1 MΩ til GND). Tjek relæmodulets aktive niveau (`motor_inverted`) og retningen (`invert_dir`).
-2. Prøvekør i manuel drift, kalibrér ("Calibrate valve"), og følg efterløb, dødtid og motorstarter i loggen.
-3. Indregulér Kp/Ti under rigtig drift (start: Kp 4, Ti 300 s).
-4. Byg strømforsyningen som beskrevet ovenfor.
-5. Overvej at sætte et kodeord på hotspottet (`ap_password` er tomt, så "Shuntventil" er åbent).
+1. **DS18B20 svarer ikke** efter skærmreparationen (`reading scratch pad failed bus reset`, SENSOR FAULT). Tilslut den igen, og tjek 4,7 kΩ og GPIO 27.
+2. Montér AS5600 analogt (se *Følere*), tilslut relæ (GPIO 25) og optokobler (GPIO 26 via 330 Ω). Tjek relæmodulets aktive niveau (`motor_inverted`) og retningen (`invert_dir`). Indstil magneten til ca. 1650 mV ved 50 %, og kalibrér ("Calibrate valve"). Følg efterløb, dødtid og motorstarter i loggen.
+3. Derefter: tilføj ESPHome's `as5600`-komponent via I²C for magnetstatus (første skridt mod rev 2). Overvej en substitution `has_display: "false"`, der slår skærmen fra (sparer ca. 32 kB RAM og frigør GPIO 4, 5, 16, 18, 19 og 23).
+4. Indregulér Kp/Ti under rigtig drift (start: Kp 4, Ti 300 s).
+5. Byg strømforsyningen som beskrevet ovenfor.
+6. Overvej at sætte et kodeord på hotspottet (`ap_password` er tomt, så "Shuntventil" er åbent).
 
 ## Planer
 
@@ -170,4 +171,4 @@ esphome logs --device 192.168.4.188 ventilregulator.yaml       # log over WiFi
 - **2026-09-30:** Ventildata fundet (CR305, højst 5 s pr. 90°), motorsløjfen sat til 20 ms, Arduino-versionen slettet. Gennemgået SSR med/uden zero-cross (zero-cross er fint, fordi en triac alligevel først slukker ved nulgennemgang) og potentiometertyper (ledende plast eller AS5600 anbefales).
 - **2026-10-04:** Board nr. 1 viste sig defekt, og firmwaren blev lagt ind på board nr. 2 (COM4). Skærmens nederste halvdel er defekt, så layoutet blev reduceret til det vigtigste plus hændelseslog og statuslinje på serielporten. Motoren ombygget til 5 VDC med optokobler-retning. ESPHome installeret i Program Files med build-mappen i ProgramData. WiFi sat op og OTA i brug. Indlæring af dødtid og efterløb tilføjet. Al kode oversat til engelsk og IP-adressen vist på skærmen. Valg af MOSFET og DS18B20-tilslutning gennemgået. DS18B20 fundet og fallback for adressen lavet.
 - **2026-10-05/06:** Hardwarerevisionerne fastlagt (rev 1: potentiometer + relæ, rev 2: AS5600 + MOSFET). Strømforsyningen designet. Energimåleren identificeret som Siemens Ultraheat 2WR5, og valget af læsehoved gennemgået (Hichi TTL fra eBay.de, printversion i eget hus). Det er besluttet, at KSM-controlleren håndteres af Home Assistant.
-- **2026-10-18:** Arbejdet fortsat på pc 2. Python 3.12, ESPHome 2026.9.1 (i venv) og Git 2.55 installeret. Firmwaren kompilerer uændret. CLAUDE.md oprettet som fælles status mellem pc'erne. Overgang til et privat GitHub-repository besluttet (commits som "Jacob Rytter" <jr@pc-smeden.dk>).
+- **2026-10-18:** Arbejdet fortsat på pc 2. Python 3.12, ESPHome 2026.9.1 (i venv) og Git 2.55 installeret. Firmwaren kompilerer uændret. CLAUDE.md oprettet som fælles status mellem pc'erne. Overgang til et privat GitHub-repository besluttet (commits som "Jacob Rytter" <jr@pc-smeden.dk>) og første commit pushet. Skærmen fejlede (fladkablets forbindelse). En test med `data_rate: 10MHz` gav samme config-hash som standarden, så den ændrede intet og blev fjernet igen. Displayet fra board 1 blev flyttet over, virkede kortvarigt, og blev så opgivet efter beskadigede loddeøer. Brugeren har fået en AS5600, der først kobles analogt på GPIO 33.
