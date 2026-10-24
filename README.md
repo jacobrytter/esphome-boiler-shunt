@@ -265,7 +265,7 @@ Alt kan styres fra webinterfacet `http://ventilregulator.local` (eller IP-adress
 | Deadband | Mindste stillingsændring, før motoren kører (standard 2 %) |
 | Mode | Auto / Manual |
 | Manual shunt position | Stilling i manuel drift |
-| Calibrate valve | Kører helt lukket og helt åben, lærer stillingsfølerens endepunkter og måler gangtiden |
+| Calibrate valve | Kører helt åben og derefter helt lukket, lærer stillingsfølerens endepunkter og måler gangtiden. Slutter med shunten lukket. |
 | Status | AUTO, MANUAL, CALIBRATING, SENSOR FAULT eller VALVE FAULT |
 
 Alle indstillinger gemmes i flash.
@@ -297,11 +297,11 @@ Det er normalt, at shunten står på 100 % i starten af en opfyring og på 0 %, 
 
 | Situation | Hvad regulatoren gør |
 |---|---|
-| Føler afbrudt 3 målinger i træk | *FØLERFEJL*. Ventilen holder sin stilling. Sæt `fault_open_shunt: "true"`, hvis den i stedet skal åbne shunten helt. |
+| Føler afbrudt 3 målinger i træk | *FØLERFEJL*. Shunten lukkes helt, så kedlen altid kan komme af med varmen. Sæt `fault_hold_position: "true"`, hvis ventilen i stedet skal holde sin stilling. |
 | Stillingsføler afbrudt/ukalibreret | Kører videre med stillingen estimeret ud fra kørselstid. *Position sensor OK* bliver slukket. |
 | Motor kører, men akslen flytter sig ikke | *VENTILFEJL* |
 | Genstart med kalibreret stillingsføler | Fortsætter fra den aktuelle stilling |
-| Genstart uden stillingsføler | Kører shunten helt åben og starter forfra |
+| Genstart uden stillingsføler | Lukker shunten helt og starter forfra |
 | WiFi forsvinder | Reguleringen er upåvirket |
 
 ## Kendte udfordringer

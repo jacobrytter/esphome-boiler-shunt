@@ -16,7 +16,7 @@ substitutions:
   friendly_name: Ventilregulator
   invert_dir: "false"         # "true" if the valve turns the wrong way
   motor_inverted: "false"     # "true" if the motor switch (relay module) is active LOW
-  fault_open_shunt: "false"   # sensor fault: "false" = hold position, "true" = open shunt fully
+  fault_hold_position: "false"  # temperature sensor fault: "false" = close the shunt, "true" = hold position
   full_display: "false"       # "false" = only the top half of the display is used (defective panel)
 
 esphome:
@@ -33,7 +33,7 @@ esphome:
           c.end0 = id(g_end0);
           c.end100 = id(g_end100);
           c.p.invert_dir = ${invert_dir};
-          c.p.fault_open_shunt = ${fault_open_shunt};
+          c.p.fault_hold_position = ${fault_hold_position};
           c.loaded = true;
 
           // DS18B20: use the sensor found on the bus at boot and remember its address.

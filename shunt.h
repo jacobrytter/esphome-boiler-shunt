@@ -31,7 +31,9 @@ struct Params {
   bool manual = false;
   float man_pos = 0.0f;
   bool invert_dir = false;        // swap direction if the valve turns the wrong way
-  bool fault_open_shunt = false;  // sensor fault: false = hold position, true = open shunt
+  // Sensor fault: false = close the shunt (safe: the boiler can always get rid of its heat),
+  // true = hold the position
+  bool fault_hold_position = false;
 };
 
 // Position sensor characteristics, in the sensor's own unit. The YAML selects one per
@@ -98,7 +100,7 @@ class Controller {
       cal_msg_ = "Position sensor not connected";
       return false;
     }
-    cal_ = CAL_CLOSE;
+    cal_ = CAL_OPEN;  // open first, so the calibration ends with the shunt closed
     cal_msg_ = "Calibrating...";
     return true;
   }
@@ -126,10 +128,12 @@ class Controller {
     was_manual_ = p.manual;
 
     if (p.manual || !init_) return;
-    if (sensor_fault_ || std::isnan(temp_)) {
-      if (p.fault_open_shunt) out_ = target_ = 100.0f;
+    if (sensor_fault_) {
+      // Close the shunt; the controller resumes from closed when the sensor is back
+      if (!p.fault_hold_position) out_ = target_ = integ_ = 0.0f;
       return;
     }
+    if (std::isnan(temp_)) return;  // no reading yet after boot: hold
 
     float e = p.sp - temp_;  // too cold -> positive -> open the shunt more
     p_term_ = p.kp * e;
@@ -155,10 +159,10 @@ class Controller {
         out_ = integ_ = target_ = pos_;
         log_event("Start-up: position sensor OK (%.1f %s), continuing from %.1f %%", sensor_, cfg.unit, pos_);
       } else {
-        // Position unknown: open the shunt fully (safe start-up for the boiler)
-        pos_ = 0.0f;
-        out_ = integ_ = target_ = 100.0f;
-        log_event("Start-up: position sensor %s (%.1f %s) - opening the shunt fully",
+        // Position unknown: close the shunt fully (safe: the boiler can always get rid of its heat)
+        pos_ = 100.0f;
+        out_ = integ_ = target_ = 0.0f;
+        log_event("Start-up: position sensor %s (%.1f %s) - closing the shunt fully",
                   sensor_connected() ? "not calibrated" : "not connected", sensor_, cfg.unit);
       }
     }
@@ -167,8 +171,8 @@ class Controller {
 
     switch (state_) {
       case A_IDLE: {
-        if (cal_ == CAL_CLOSE) { start_move(-1, RM_END, 0.0f, CAL_MAX_MS, now); break; }
         if (cal_ == CAL_OPEN)  { start_move(+1, RM_END, 100.0f, CAL_MAX_MS, now); break; }
+        if (cal_ == CAL_CLOSE) { start_move(-1, RM_END, 0.0f, CAL_MAX_MS, now); break; }
 
         float t = target_;
         bool end = false;
@@ -345,7 +349,8 @@ class Controller {
         cal_dirty = true;
         log_event("End point %s learned: %.1f %s", opening ? "100 %" : "0 %", e, cfg.unit);
       }
-      if (cal_ == CAL_OPEN) {
+      if (cal_ == CAL_CLOSE) {
+        // The closing run goes the full way, so it gives the travel time
         new_travel = std::max(2.0f, (t_last_move_ - t_state_) / 1000.0f);
         cal_msg_ = "Calibration OK";
         log_event("Calibration OK: travel time %.2f s, 0 %% = %.1f %s, 100 %% = %.1f %s",
@@ -354,10 +359,10 @@ class Controller {
     }
     if (!use_sensor()) pos_ = opening ? 100.0f : 0.0f;
 
-    if (cal_ == CAL_CLOSE) {
-      cal_ = stalled ? CAL_OPEN : CAL_NONE;
+    if (cal_ == CAL_OPEN) {
+      cal_ = stalled ? CAL_CLOSE : CAL_NONE;
       if (!stalled) cal_msg_ = "Calibration failed: no movement detected";
-    } else if (cal_ == CAL_OPEN) {
+    } else if (cal_ == CAL_CLOSE) {
       if (!stalled) cal_msg_ = "Calibration failed: end stop not found";
       cal_ = CAL_NONE;
     } else {
@@ -371,7 +376,7 @@ class Controller {
   int bad_reads_ = 0;
   bool sensor_fault_ = false;
   bool was_manual_ = false;
-  float p_term_ = 0, integ_ = 100.0f, out_ = 100.0f;
+  float p_term_ = 0, integ_ = 0, out_ = 0;
 
   // Actuator
   bool init_ = false, boot_started_ = false;
@@ -387,7 +392,7 @@ class Controller {
   float lead_ = STOP_LEAD, pos_stop_ = 0;
   uint32_t dead_ms_ = 0;
   bool moved_ = false, learn_lead_ = false;
-  float pos_ = 0, target_ = 100.0f, run_target_ = 0;
+  float pos_ = 0, target_ = 0, run_target_ = 0;
   float sensor_ = NAN, last_move_val_ = NAN;
   int misses_ = 0;
   uint32_t t_state_ = 0, t_last_ = 0, t_last_move_ = 0, max_ms_ = 0;
