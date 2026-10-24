@@ -306,6 +306,7 @@ class Controller {
   bool sensor_fault() const { return sensor_fault_; }
   bool valve_fault() const { return valve_fault_; }
   bool any_fault() const { return sensor_fault_ || valve_fault_; }
+  bool calibrating() const { return cal_ != CAL_NONE; }
   const char* cal_msg() const { return cal_msg_; }
   const char* state_text() const {
     if (cal_ != CAL_NONE) return "CALIBRATING";

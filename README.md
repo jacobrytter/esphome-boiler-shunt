@@ -284,7 +284,9 @@ Alle indstillinger gemmes i flash. *Manual motor* gemmes ikke: efter en genstart
 
 ## Indregulering (Kp og Ti)
 
-Udgangspunktet er **Kp = 4 %/°C og Ti = 300 s** med regulering hvert 10. sekund. Det er bevidst forsigtigt.
+Udgangspunktet er **Kp = 4 %/°C og Ti = 150 s** med regulering hvert 10. sekund. Det er bevidst forsigtigt. (Ti var oprindelig 300 s, men føleren sidder 120 cm efter ventilen bag pumpen, så dødtiden er kort.)
+
+Brug **dataloggen** på `http://ventilregulator.local/datalog` til at bedømme reguleringen: grafer over de sidste 4 timer (returtemperatur, sætpunkt, stilling, mål og I-led hvert 10. sekund) og motorstarter pr. 10 min og pr. time. Rådata kan hentes som `datalog.csv` og `starts.csv` (fx til Excel). Loggen ligger i RAM og starter forfra efter en genstart.
 
 - **Kp** = hvor mange procent ventilen flytter sig pr. grad afvigelse. Et større tal giver hurtigere og mere urolig regulering.
 - **Ti** = hvor hurtigt den resterende afvigelse fjernes. Et mindre tal giver hurtigere regulering, men mere oversving.
@@ -293,7 +295,7 @@ Fremgangsmåde med kurverne på skærmen eller i Home Assistant:
 
 1. **Temperaturen svinger op og ned**: halvér Kp. Hjælper det ikke, så fordobl Ti.
 2. **Den er langsom og ligger længe under/over sætpunktet**: øg Kp med ca. 50 % ad gangen.
-3. **Den rammer tæt på, men kryber langsomt ind**: gør Ti mindre (fx 300 → 200 s).
+3. **Den rammer tæt på, men kryber langsomt ind**: gør Ti mindre (fx 150 → 100 s).
 
 Det er normalt, at shunten står på 100 % i starten af en opfyring og på 0 %, når huset er varmt.
 

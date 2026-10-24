@@ -25,6 +25,7 @@ esphome:
   build_path: C:/ProgramData/ESPHome/build/ventilregulator  # large folder, kept out of the repository and OneDrive
   includes:
     - shunt.h
+    - datalog.h      # 4 h data log in RAM, served at /datalog
   on_boot:
     priority: -100
     then:
@@ -35,6 +36,13 @@ esphome:
           c.p.invert_dir = ${invert_dir};
           c.p.fault_hold_position = ${fault_hold_position};
           c.loaded = true;
+
+          // Data log: wall clock for the time stamps, and the /datalog pages
+          datalog::dlog.now_epoch = []() -> time_t {
+            auto t = id(sntp_time).now();
+            return t.is_valid() ? t.timestamp : 0;
+          };
+          web_server_base::global_web_server_base->add_handler(new datalog::Handler());
 
           // Manual motor is for commissioning only; never come back up in it after a restart
           auto idx = id(mode).active_index();
@@ -91,6 +99,10 @@ wifi:
     ssid: "Shuntventil"
     password: !secret ap_password
     ap_timeout: 5min
+
+time:               # wall clock for the data log; the controller does not need it
+  - platform: sntp
+    id: sntp_time
 
 captive_portal:     # WiFi setup via the hotspot (see README)
 improv_serial:      # WiFi setup over USB from https://web.esphome.io
@@ -245,7 +257,7 @@ number:
     min_value: 10
     max_value: 5000
     step: 10
-    initial_value: 300
+    initial_value: 150  # sensor 120 cm after the valve, behind the pump: short dead time
     optimistic: true
     restore_value: true
     mode: box
@@ -347,6 +359,12 @@ interval:
       - lambda: |-
           auto &c = shunt::ctl;
           c.tick(id(return_temp).state, 10.0f);
+          datalog::dlog.add(millis() / 1000, c.temp(), c.p.sp, c.pos(), c.out(), c.integ(),
+                            (c.p.manual ? datalog::F_MANUAL : 0) | (c.p.direct ? datalog::F_DIRECT : 0) |
+                            (c.sensor_fault() ? datalog::F_SENSOR_FAULT : 0) |
+                            (c.valve_fault() ? datalog::F_VALVE_FAULT : 0) |
+                            (c.calibrating() ? datalog::F_CALIBRATING : 0),
+                            c.starts());
           // Status line for debugging
           ESP_LOGI("shunt", "T=%.2f SP=%.1f | out=%.1f%% P=%.1f I=%.1f | pos=%.1f%% "
                    "sensor=%.1f%s (0%%=%.1f 100%%=%.1f) | coast=%.2f%% dead=%ums | %s | starts=%u",
@@ -405,6 +423,22 @@ sensor:
     entity_category: diagnostic
     lambda: return shunt::ctl.starts();
     web_server: {sorting_group_id: grp_valve, sorting_weight: 100}
+  - platform: template
+    name: "Valve motor starts last hour"
+    unit_of_measurement: "starts"
+    accuracy_decimals: 0
+    update_interval: 60s
+    entity_category: diagnostic
+    lambda: return datalog::dlog.starts_last_hours(1);
+    web_server: {sorting_group_id: grp_valve, sorting_weight: 110}
+  - platform: template
+    name: "Valve motor starts last 24 h"
+    unit_of_measurement: "starts"
+    accuracy_decimals: 0
+    update_interval: 60s
+    entity_category: diagnostic
+    lambda: return datalog::dlog.starts_last_hours(24);
+    web_server: {sorting_group_id: grp_valve, sorting_weight: 120}
   - platform: template
     name: "Position sensor"
     unit_of_measurement: ${pos_unit}
