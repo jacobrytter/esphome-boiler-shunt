@@ -19,7 +19,7 @@ PI-regulator på en ESP32, der styrer en motoriseret 3-vejs kugleventil i reture
 - **Ventilstilling 0 %** = shunt lukket: alt returvand fra huset går til kedlen.
 - **Ventilstilling 100 %** = shunt helt åben: kedlens fremløb blandes i returen (opstart, kold kedel).
 - Ved opstart står shunten helt åben. Når blandetemperaturen passerer sætpunktet, lukker regulatoren gradvist op for husets returvand. Efter 30 min til flere timer står shunten helt lukket.
-- Temperaturføleren (DS18B20) sidder ca. 10 cm efter ventilen. Det er kort; README anbefaler 30–50 cm eller efter pumpen af hensyn til opblanding.
+- Temperaturføleren (DS18B20) sidder **120 cm efter ventilens udløb, efter en cirkulationspumpe**. Vandet er fuldt opblandet ved føleren (brugerens oplysning 2026-10-24; tidligere stod her fejlagtigt 10 cm).
 
 ## Filer
 
@@ -66,7 +66,8 @@ Den tidligere Arduino/PlatformIO-version er slettet efter brugerens ønske.
 Undgå strapping-benene 0, 2, 5, 12 og 15 til eksternt udstyr.
 
 ### Motorventil
-- HSH-Flo/HH-Flo CR305, 3-vejs L-type, messing, DN25 (mærkat: A20-T25-B3-C, CR305-AC110-230V, 500 mA). 90° på højst 5 s og 2 Nm. Ingen manuel overstyring. Blander proportionalt.
+- HSH-Flo/HH-Flo CR305, 3-vejs L-type, messing, DN25 (mærkat: A20-T25-B3-C, CR305-AC110-230V, 500 mA). 90° på højst 5 s og 2 Nm. Ingen manuel overstyring.
+- **Kuglen har to udboringer vinkelret på hinanden (L-boring).** Der sker ingen opblanding i yderområderne, og reguleringen tager kraftigt fat midt i området. Karakteristikken er altså stærkt ulineær: forstærkningen er størst i midten og næsten nul ved enderne. Målt vandring med AS5600: ca. 84° (284,0° = 0 %, 199,8° = 100 %), gangtid 4,7–4,8 s, efterløb ca. 2,5 %.
 - **Ombygget af brugeren:** 230 V-delen og auto-retur er fjernet. Motoren kører direkte på **5 VDC og trækker 120–150 mA**. En **optokobler på ventilens print vælger retning** (aktiveret = drejer mod uret, ifølge brugeren). **De interne endestopkontakter sidder der stadig** og slukker motoren selv.
 - Motoren har en vis dødtid ved start og et efterløb. Slør er ubetydeligt.
 
@@ -163,13 +164,16 @@ esphome logs --device 192.168.4.188 ventilregulator.yaml       # log over WiFi
 - **Revision 2:** AS5600-delen er lavet (packages, se *Firmware*). MOSFET-modulet mangler; det kræver ingen firmwareændring (samme GPIO 25, tjek `motor_inverted`).
 - **Aflæsning af energimåleren** fra samme ESP (måleren sidder under 30 cm fra ventilen):
   - Måler: **Siemens Ultraheat 2WR5**, type 2WR5152-6HC60-0FA8, fra 2001, forsynet med 230 V (ingen batteri-hensyn), flowmåler i retur, Pt500, plads til pulsmodul.
+  - **Placering:** flowdelen sidder på **returrøret fra stuehuset, før shuntventilen**. Den måler altså husets flow, og dens to Pt500-følere giver husets fremløb og retur. Dermed kan måleren alene give blandingsforholdet `x = (T_blandet − T_retur_hus) / (T_fremløb − T_retur_hus)` og husets flow som funktion af ventilstillingen, dvs. ventilens reelle karakteristik. Udlæsningen er langsom (IEC 62056-21), så den egner sig til karakteristik og statistik, ikke til hurtig fremkobling.
   - Optisk port efter EN 61107 (= IEC 62056-21). Det er **det ovale vindue til venstre for den gule mærkat**. Den runde ting til højre er en trykknap. Der er sandsynligvis ingen stålring, så magneten holder ikke.
   - Plan: **Hichi TTL-print ("Platine")** fra eBay.de i et hjemmelavet, lystæt hus (PETG/ABS, skumpakning), monteret aftageligt med tape/velcro og retningen afprøvet. 3,3 V, GND, TX → GPIO 13, RX → GPIO 17.
   - Protokol: IEC 62056-21 mode B, opvækning og forespørgsel ved 300 baud, data ved 2400 baud (7E1/7E2). Samme familie som Landis+Gyr UH50/T550: [esphome-uh50reader](https://github.com/psvanstrom/esphome-uh50reader) (koderne 6.8 energi, 6.26 volumen, 6.4 effekt, 6.27 flow, 6.29/6.28 frem/retur, 6.30 ΔT) og den generelle IEC 62056-21-komponent fra HA-forummet. 2WR5 er ikke nævnt direkte, så **første version skal skrive målerens rå svar i loggen**, og koderne afkodes ud fra det. Tællerne skal være `total_increasing`-sensorer til HA's energioversigt.
   - Det fravalgte RS485-læsehoved (YDM220803C) kræver 5–24 V og en RS485-omformer.
 - **Flere følere på fyret** i en senere version (fx en ekstra DS18B20 på fremløbet, som også kan bruges til fremkobling).
 - **Fyrets controller** (KSM Toxido 20 F-Auto, TCP/IP) skal aflæses **direkte af Home Assistant og ikke af ESP'en**. Protokollen (Modbus TCP, HTTP/JSON eller færdig integration) er ikke undersøgt endnu.
-- **Ventilens karakteristik** (valgfrit): flow fra energimåleren ved manuelle trin på 0–100 % kan bruges til en omregningstabel i firmwaren, hvis reguleringen opfører sig forskelligt i forskellige områder.
+- **Ventilens karakteristik og linearisering:** L-boringen gør karakteristikken stærkt ulineær (se *Motorventil*). Plan: mål husets flow og temperaturerne fra energimåleren ved manuelle trin på 0–100 % i stabil drift, og lav en omregningstabel i firmwaren, så PI-regulatorens udgang er "ønsket blandingsforhold" og tabellen oversætter til ventilstilling. Indtil da skal Kp/Ti indstilles til midterområdet (højest forstærkning), så reguleringen er stabil der og blot langsommere ved enderne.
+- **Fremkobling:** kræver hurtige temperaturer for kedlens fremløb og husets retur, dvs. to ekstra DS18B20 på 1-Wire-bussen. Energimålerens temperaturer er for langsomme til det.
+- **Autotune** er vurderet og fravalgt foreløbig (2026-10-24): forstærkningen skifter med ΔT og ventilstilling, anlægget er sjældent i ro, og relæmetoden slider på motoren. Hvis det bliver nødvendigt, er en trin-test med forslag efter SIMC-reglerne at foretrække.
 
 ## Historik i hovedtræk
 
