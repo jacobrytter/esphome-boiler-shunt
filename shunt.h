@@ -28,8 +28,11 @@ struct Params {
   float ti = 300.0f;     // integral time, s
   float travel = 5.0f;   // travel time 0-100 %, s (HH-Flo CR305: max 5 s)
   float db = 2.0f;       // deadband on valve position, %
-  bool manual = false;
+  bool manual = false;   // no PI control (manual position or manual motor)
   float man_pos = 0.0f;
+  bool direct = false;   // manual motor: the motor follows jog_on / jog_open directly
+  bool jog_on = false;   // manual motor: run; cleared at an end stop or after the time limit
+  bool jog_open = false; // manual motor: true = open the shunt
   bool invert_dir = false;        // swap direction if the valve turns the wrong way
   // Sensor fault: false = close the shunt (safe: the boiler can always get rid of its heat),
   // true = hold the position
@@ -167,12 +170,19 @@ class Controller {
       }
     }
     if (use_sensor()) pos_ = sensor_pos();
-    if (p.manual) out_ = target_ = p.man_pos;
+    if (!p.direct) p.jog_on = false;
+    if (p.manual) out_ = target_ = p.direct ? pos_ : p.man_pos;
 
     switch (state_) {
       case A_IDLE: {
         if (cal_ == CAL_OPEN)  { start_move(+1, RM_END, 100.0f, CAL_MAX_MS, now); break; }
         if (cal_ == CAL_CLOSE) { start_move(-1, RM_END, 0.0f, CAL_MAX_MS, now); break; }
+        if (p.direct) {
+          if (p.jog_on)
+            start_move(p.jog_open ? 1 : -1, RM_JOG, p.jog_open ? 100.0f : 0.0f,
+                       (uint32_t)(p.travel * 1000.0f * 1.5f) + 2000, now);
+          break;
+        }
 
         float t = target_;
         bool end = false;
@@ -224,6 +234,11 @@ class Controller {
         if (mode_ == RM_END) {
           stop = stalled || timeout;
           why = stalled ? "end stop (not moving)" : "time elapsed";
+        } else if (mode_ == RM_JOG) {
+          bool wanted = p.direct && p.jog_on && (p.jog_open ? 1 : -1) == dir_;
+          stop = !wanted || stalled || timeout;
+          why = !wanted ? "manual motor off" : stalled ? "end stop (not moving)" : "manual motor time limit";
+          if (stalled || timeout) p.jog_on = false;
         } else if (use_sensor()) {
           bool reached = dir_ > 0 ? pos_ >= run_target_ - lead_ : pos_ <= run_target_ + lead_;
           if (reached) { stop = true; valve_fault_ = false; why = "target reached"; }
@@ -296,13 +311,14 @@ class Controller {
     if (cal_ != CAL_NONE) return "CALIBRATING";
     if (sensor_fault_)    return "SENSOR FAULT";
     if (valve_fault_)     return "VALVE FAULT";
+    if (p.direct)         return "MANUAL MOTOR";
     if (p.manual)         return "MANUAL";
     return "AUTO";
   }
 
  private:
   enum ActState { A_IDLE, A_PREP, A_RUN, A_REST };
-  enum RunMode  { RM_TARGET, RM_END };
+  enum RunMode  { RM_TARGET, RM_END, RM_JOG };
   enum CalState { CAL_NONE, CAL_CLOSE, CAL_OPEN };
 
   // a - b; the shortest way round when the reading wraps (the valve turns only 90°)
@@ -329,7 +345,8 @@ class Controller {
 
   void start_move(int dir, RunMode mode, float run_target, uint32_t max_ms, uint32_t now) {
     log_event("Start %s towards %s: %.1f %% -> %.1f %% (max %u ms)", dir > 0 ? "OPEN" : "CLOSE",
-              mode == RM_END ? "end stop" : "target", pos_, run_target, (unsigned) max_ms);
+              mode == RM_END ? "end stop" : mode == RM_JOG ? "end (manual motor)" : "target",
+              pos_, run_target, (unsigned) max_ms);
     dir_ = dir;
     mode_ = mode;
     run_target_ = run_target;

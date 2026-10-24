@@ -150,8 +150,8 @@ Firmwaren vælger føler i `ventilregulator.yaml` under `packages`: `hw/rev2.yam
 
 - 100 kHz med 4,7 kΩ pull-up til 3,3 V (sidder normalt på modulet). Brug snoet ledning (SDA med GND og SCL med GND), ca. 20 cm, og hold den væk fra motorledningerne.
 - Magneten kan sidde i en vilkårlig vinkel på akslen. Firmwaren bruger den rå vinkel (0–360°), og kalibreringen lærer endepunkterne. Spring-punktet ved 360° håndteres i softwaren.
-- Diagnose i webUI'en: **Magnet** (OK / Too weak / Too strong / Not detected / No answer on I2C), **AS5600 gain** (automatisk forstærkning, 0–128 ved 3,3 V; midt i området betyder en passende luftspalte, højt betyder for langt væk, lavt for tæt på) og **AS5600 magnitude** (feltstyrke). **Position sensor** viser vinklen i grader.
-- Når føleren er monteret og "Magnet" viser OK: tryk **Calibrate valve**.
+- Diagnose i webUI'en: **Position sensor magnet** (OK / Too weak / Too strong / Not detected / No answer on I2C), **Position sensor gain** (automatisk forstærkning, 0–128 ved 3,3 V; midt i området betyder en passende luftspalte, højt betyder for langt væk, lavt for tæt på) og **Position sensor magnitude** (feltstyrke). **Position sensor** viser vinklen i grader.
+- Når føleren er monteret og *Position sensor magnet* viser OK: tryk **Valve calibrate**.
 - Magneten skal være **diametralt magnetiseret**, dvs. nord og syd på hver sin halvdel af den runde side. Magneter med forsænket skruehul er næsten altid aksialt magnetiseret og virker **ikke**. Køb helst et AS5600-modul med magneten i pakken. Sådan testes en magnet: læg den med fladen opad under et kompas, eller brug en magnetometer-app, og drej magneten rundt. Følger kompasnålen med rundt, er den diametral.
 - Luftspalten mellem magnetens flade og chippens overflade skal være 0,5–3 mm, og helst ca. 1–1,5 mm. For en typisk magnet på 6 × 2,5 mm svarer det til ca. 3–3,5 mm fra centrum af chippen til centrum af magneten.
 - Magneten skal sidde centreret over chippen. Den må højst være forskudt ca. 0,25 mm til siden.
@@ -257,25 +257,29 @@ Vil du slet ikke have et hotspot, når først WiFi er sat op, så slet hele `ap:
 
 Alt kan styres fra webinterfacet `http://ventilregulator.local` (eller IP-adressen) og fra Home Assistant, hvor enheden dukker op automatisk.
 
+WebUI'en viser enhederne i grupper: **Overview**, **Valve**, **Position sensor**, **Controller tuning**, **Temperature sensor** og **System**. Navnene begynder med gruppens navn, så de også står samlet i Home Assistants alfabetiske lister.
+
 | Enhed | Funktion |
 |---|---|
+| Status | AUTO, MANUAL, MANUAL MOTOR, CALIBRATING, SENSOR FAULT eller VALVE FAULT |
+| Mode | **Auto** (regulering), **Manual position** (ventilen kører til *Manual shunt position*) eller **Manual motor** (motoren styres direkte med *Valve motor* og *Valve direction*) |
 | Setpoint | Ønsket minimum returtemperatur (standard 55 °C) |
-| Kp, Ti | Regulatorparametre (se nedenfor) |
-| Travel time 0-100 % | Måles automatisk af kalibreringen |
-| Deadband | Mindste stillingsændring, før motoren kører (standard 2 %) |
-| Mode | Auto / Manual |
-| Manual shunt position | Stilling i manuel drift |
-| Calibrate valve | Kører helt åben og derefter helt lukket, lærer stillingsfølerens endepunkter og måler gangtiden. Slutter med shunten lukket. |
-| Status | AUTO, MANUAL, CALIBRATING, SENSOR FAULT eller VALVE FAULT |
+| Manual shunt position | Stilling i *Manual position* |
+| Valve direction | *Open* eller *Close* til *Manual motor* |
+| Valve motor | Tænder motoren i den valgte retning. Skifter selv *Mode* til *Manual motor*. Slukker selv ved endestop og efter 1,5 × gangtiden. Skift af retning undervejs stopper motoren og starter den i den nye retning. |
+| Valve calibrate | Kører helt åben og derefter helt lukket, lærer stillingsfølerens endepunkter og måler gangtiden. Slutter med shunten lukket. |
+| Valve travel time 0-100 % | Måles automatisk af kalibreringen |
+| Valve deadband | Mindste stillingsændring, før motoren kører (standard 2 %) |
+| Controller Kp, Controller Ti | Regulatorparametre (se nedenfor) |
 
-Alle indstillinger gemmes i flash.
+Alle indstillinger gemmes i flash. *Manual motor* gemmes ikke: efter en genstart står *Mode* på Auto.
 
 ## Idriftsættelse
 
 1. **Tør test uden 230 V på motoren.** Tjek at relæerne klikker, og at temperaturen vises på skærmen.
-2. **Retning.** Sæt *Mode* til Manual og *Manual shunt position* til 100 %. Ventilen skal nu åbne for shunten. Kører den forkert, så sæt `invert_dir: "true"`.
-3. **Kalibrering.** Tryk *Calibrate valve*, og vent til *Calibration* viser "Calibration OK".
-4. Prøv manuel 25, 50 og 75 %. *Shunt position* skal følge med inden for et par procent. Tjek samtidig, at ventilen faktisk blander gradvist.
+2. **Retning.** Sæt *Valve direction* til Open, og tænd *Valve motor*. Ventilen skal nu åbne for shunten, og *Position sensor* skal ændre sig. Kører den forkert, så sæt `invert_dir: "true"`.
+3. **Kalibrering.** Tryk *Valve calibrate*, og vent til *Valve calibration* viser "Calibration OK".
+4. Sæt *Mode* til Manual position, og prøv 25, 50 og 75 %. *Shunt position* skal følge med inden for et par procent. Tjek samtidig, at ventilen faktisk blander gradvist.
 5. Sæt *Mode* til Auto.
 
 ## Indregulering (Kp og Ti)
@@ -311,7 +315,7 @@ Det er normalt, at shunten står på 100 % i starten af en opfyring og på 0 %, 
 | Auto-retur ved strømsvigt | Skal kobles fra, ellers kan ventilen ikke stå i mellemstilling (se *Motorventil*). Efter et strømsvigt står ventilen, hvor den var, og regulatoren fortsætter derfra. |
 | Ingen manuel overstyring | Monter omskifteren AUTO / ÅBEN / LUK (se *Manuel omskifter*). |
 | Føler for tæt på ventilen | Flyt den 30–50 cm længere ned, eller efter pumpen. |
-| Motorslid | On/off-motorer er ikke bygget til tusindvis af starter. Tjek *Motor starts* i webinterfacet efter et døgn. Over et par hundrede starter i døgnet bør dødbåndet hæves eller Kp sænkes. |
+| Motorslid | On/off-motorer er ikke bygget til tusindvis af starter. Tjek *Valve motor starts* i webinterfacet efter et døgn. Over et par hundrede starter i døgnet bør dødbåndet hæves eller Kp sænkes. |
 | Relæslid | Relæ 1 bryder motorstrømmen. Brug RC-led over kontakten. |
 | Varme ved ventilen | Motor og potentiometer sidder på et rør på op til ca. 90 °C. Brug et potentiometer, der tåler varmen, og placer ESP'en og relæerne væk fra rørene. |
 | Kugleventilens karakteristik | Flowet ændrer sig ikke lineært med stillingen. Regulatoren kan derfor virke rolig i ét område og nervøs i et andet. Indregulér ved de stillinger, hvor den typisk arbejder. |

@@ -28,9 +28,11 @@ sensor:
     internal: true     # the motor control reads the raw angle itself
     update_interval: 10s
     gain:
-      name: "AS5600 gain"   # automatic gain: 0-128 at 3.3 V, mid-range = right air gap
+      name: "Position sensor gain"   # automatic gain: 0-128 at 3.3 V, mid-range = right air gap
+      web_server: {sorting_group_id: grp_possensor, sorting_weight: 60}
     magnitude:
-      name: "AS5600 magnitude"
+      name: "Position sensor magnitude"
+      web_server: {sorting_group_id: grp_possensor, sorting_weight: 70}
 
 script:
   - id: read_position  # called every 20 ms by the motor control
@@ -51,9 +53,10 @@ script:
 
 text_sensor:
   - platform: template
-    name: "Magnet"
+    name: "Position sensor magnet"
     update_interval: 5s
     entity_category: diagnostic
+    web_server: {sorting_group_id: grp_possensor, sorting_weight: 50}
     lambda: |-
       int st = id(g_magnet);
       if (st < 0)          return {"No answer on I2C"};
