@@ -1,6 +1,6 @@
 # Ventilregulator – returshunt til stokerfyr (ESPHome)
 
-PI-regulator på en [LilyGO T-Display](https://wiki.lilygo.cc/products/t-display-series/t-display/) (ESP32 med 1,14" skærm), der styrer en motoriseret 3-vejs ventil (HH-Flo A20-T25-B3-C, 230 VAC, 3-leder) i kedlens retur. Målet er at holde returtemperaturen til kedlen på mindst sætpunktet (typisk 55 °C).
+PI-regulator på en [LilyGO T-Display](https://wiki.lilygo.cc/products/t-display-series/t-display/) (ESP32; skærmen bruges ikke), der styrer en motoriseret 3-vejs ventil (HH-Flo A20-T25-B3-C, 230 VAC, 3-leder) i kedlens retur. Målet er at holde returtemperaturen til kedlen på mindst sætpunktet (typisk 55 °C).
 
 | Ventil | Betydning |
 |---|---|
@@ -13,7 +13,7 @@ Ved opstart står shunten helt åben, fordi returen er kold. Når kedlen varmer 
 
 | Fil | Indhold |
 |---|---|
-| [ventilregulator.yaml](ventilregulator.yaml) | ESPHome-konfiguration: pins, WiFi, skærm, indstillinger og sensorer |
+| [ventilregulator.yaml](ventilregulator.yaml) | ESPHome-konfiguration: pins, WiFi, indstillinger og sensorer |
 | [shunt.h](shunt.h) | PI-regulatoren og motorstyringen (ren C++) |
 | [secrets.yaml](secrets.yaml) | WiFi-kodeord og krypteringsnøgle. Del den ikke. |
 
@@ -27,18 +27,7 @@ Ved opstart står shunten helt åben, fordi returen er kold. Når kedlen varmer 
 
 ## Skærmen
 
-Skærmen på det nuværende board har en fejl i den nederste halvdel, så kun det vigtigste vises, øverst og med stor skrift:
-
-```
-┌────────────────────────────────────┐
-│ 54.3°C                         37% │  returtemperatur (orange) · shuntstilling (blå)
-│ SP 55.0°C                     AUTO │  sætpunkt · status (rød ved fejl)
-│                                    │
-│        (nederste halvdel defekt)   │
-└────────────────────────────────────┘
-```
-
-Den højre knap på boardet tænder og slukker skærmlyset. Alt andet står i loggen (se *Fejlfinding*).
+Skærmen på boardet bruges ikke (den er defekt, og firmwaren styrer den ikke længere). Al betjening og aflæsning sker i webinterfacet og i loggen (se *Betjening* og *Fejlfinding*).
 
 ## Tilslutning
 
@@ -51,8 +40,8 @@ Den højre knap på boardet tænder og slukker skærmlyset. Alt andet står i lo
 | Optokobler: retning | 26 |
 | Stillingsføler rev 1 (potentiometer) | 33 (skal være ADC1, fordi ADC2 ikke virker med WiFi) |
 | Stillingsføler rev 2 (AS5600, I²C) | 21 (SDA), 22 (SCL) |
-| Skærm (fast på boardet) | 4, 5, 16, 18, 19, 23 |
-| Knapper (fast på boardet) | 0, 35 |
+| Skærm (fast på boardet, bruges ikke) | 4, 5, 16, 18, 19, 23 |
+| Knapper (fast på boardet, bruges ikke) | 0, 35 |
 
 ### Motorventil (5 VDC)
 
@@ -276,7 +265,7 @@ Alle indstillinger gemmes i flash. *Manual motor* gemmes ikke: efter en genstart
 
 ## Idriftsættelse
 
-1. **Tør test uden 230 V på motoren.** Tjek at relæerne klikker, og at temperaturen vises på skærmen.
+1. **Tør test uden 230 V på motoren.** Tjek at relæerne klikker, og at temperaturen vises i webinterfacet.
 2. **Retning.** Sæt *Valve direction* til Open, og tænd *Valve motor*. Ventilen skal nu åbne for shunten, og *Position sensor* skal ændre sig. Kører den forkert, så sæt `invert_dir: "true"`.
 3. **Kalibrering.** Tryk *Valve calibrate*, og vent til *Valve calibration* viser "Calibration OK".
 4. Sæt *Mode* til Manual position, og prøv 25, 50 og 75 %. *Shunt position* skal følge med inden for et par procent. Tjek samtidig, at ventilen faktisk blander gradvist.
@@ -291,7 +280,7 @@ Brug **dataloggen** på `http://ventilregulator.local/datalog` til at bedømme r
 - **Kp** = hvor mange procent ventilen flytter sig pr. grad afvigelse. Et større tal giver hurtigere og mere urolig regulering.
 - **Ti** = hvor hurtigt den resterende afvigelse fjernes. Et mindre tal giver hurtigere regulering, men mere oversving.
 
-Fremgangsmåde med kurverne på skærmen eller i Home Assistant:
+Fremgangsmåde med kurverne i dataloggen eller i Home Assistant:
 
 1. **Temperaturen svinger op og ned**: halvér Kp. Hjælper det ikke, så fordobl Ti.
 2. **Den er langsom og ligger længe under/over sætpunktet**: øg Kp med ca. 50 % ad gangen.

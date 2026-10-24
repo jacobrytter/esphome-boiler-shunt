@@ -25,7 +25,7 @@ PI-regulator på en ESP32, der styrer en motoriseret 3-vejs kugleventil i reture
 
 | Fil | Indhold |
 |---|---|
-| `ventilregulator.yaml` | ESPHome-konfiguration: pins, WiFi, skærm, indstillinger (number/select/button), sensorer, intervaller |
+| `ventilregulator.yaml` | ESPHome-konfiguration: pins, WiFi, indstillinger (number/select/button), sensorer, intervaller |
 | `hw/rev1.yaml`, `hw/rev2.yaml` | Package med stillingsføleren for hver hardwarerevision (rev 1: potentiometer på ADC, rev 2: AS5600 over I²C). Vælges under `packages:` i `ventilregulator.yaml`. Enheden kører rev 2. |
 | `shunt.h` | PI-regulator + motorstyring som ren C++ (`namespace shunt`, global `shunt::ctl`). Ingen ESPHome-afhængigheder. |
 | `datalog.h` | Datalog i RAM (`namespace datalog`, global `datalog::dlog`) og webhandler for `/datalog` (graf-side), `/datalog.csv` og `/starts.csv`. Bruger ESPHome's `web_server_idf`. |
@@ -47,7 +47,7 @@ Den tidligere Arduino/PlatformIO-version er slettet efter brugerens ønske.
 
 ### Board
 - **LilyGO T-Display** (ESP32-D0WDQ6 rev 1.0, 4 MB flash, ST7789 135×240), MAC `24:6f:28:7a:44:50`, USB-chip CP210x (har været COM4).
-- Boardet er brugt og flere år gammelt. **Skærmen er død** (2026-10-18): fladkablets forbindelse til printet svigtede (svagt lys, "snestorm"). Displayet fra board 1 blev flyttet over og virkede kortvarigt, men loddeøerne blev beskadiget ved andet forsøg, og skærmen er opgivet. Brugeren bruger webUI'en i stedet. Firmwaren driver stadig skærmen, hvilket er harmløst. Ved et nyt T-Display (almindeligt ESP32, ikke S3) sættes `full_display: "true"`.
+- Boardet er brugt og flere år gammelt. **Skærmen er død** (2026-10-18): fladkablets forbindelse til printet svigtede (svagt lys, "snestorm"). Displayet fra board 1 blev flyttet over og virkede kortvarigt, men loddeøerne blev beskadiget ved andet forsøg, og skærmen er opgivet. Brugeren bruger webUI'en i stedet. **Al skærmkode er fjernet fra firmwaren** (2026-10-24, brugerens ønske): `spi`, `font`, `color`, `display`, baggrundslyset (`ledc` på GPIO 4 + `light`), knappen på GPIO 35 og substitutionen `full_display`. Skal en skærm bruges igen, ligger den gamle konfiguration i Git-historikken (før commit "Remove the display").
 - Det første board (CP210x på COM3) var defekt. ESP32'en svarede slet ikke over UART, heller ikke i download-tilstand. Det samme var sket ved en tidligere lejlighed. Dets display er brugt og ødelagt, så det kan ikke bruges til reservedele længere.
 - IP-adresse på brugerens net: **192.168.4.188** (mDNS `ventilregulator.local`). WiFi-signal ca. -81 dBm (svagt).
 
@@ -61,8 +61,8 @@ Den tidligere Arduino/PlatformIO-version er slettet efter brugerens ønske.
 | Stillingsføler rev 1 (potentiometer), skal være ADC1 | 33 (+100 nF og **1 MΩ til GND**) |
 | Stillingsføler rev 2 (AS5600 via I²C, 100 kHz) | 21 (SDA), 22 (SCL) |
 | Reserveret til energimålerens læsehoved (UART2) | 13 (RX), 17 (TX) |
-| Skærm (fast på boardet) | 4 (baggrundslys), 5, 16, 18, 19, 23 |
-| Knapper | 0 (BOOT), 35 (tænder/slukker baggrundslys) |
+| Skærm (fast på boardet, bruges ikke) | 4 (baggrundslys), 5, 16, 18, 19, 23 |
+| Knapper (bruges ikke) | 0 (BOOT), 35 |
 
 Undgå strapping-benene 0, 2, 5, 12 og 15 til eksternt udstyr.
 
@@ -91,7 +91,7 @@ Undgå strapping-benene 0, 2, 5, 12 og 15 til eksternt udstyr.
 
 ### ESPHome-konfiguration (`ventilregulator.yaml`)
 - ESPHome 2026.9.1, ESP-IDF, `board: esp32dev`, `build_path: C:/ProgramData/ESPHome/build/ventilregulator`.
-- Substitutions: `invert_dir`, `motor_inverted`, `fault_hold_position`, `full_display`.
+- Substitutions: `invert_dir`, `motor_inverted`, `fault_hold_position`.
 - WiFi fra `secrets.yaml`, **`reboot_timeout: 0s`** for både WiFi og API (ESPHome genstarter ellers efter 15 min). Hotspot **"Shuntventil"** med `ap_timeout: 5min`, og ESPHome bliver ved med at forsøge at forbinde (hvert 30. s) mens hotspottet er åbent. `captive_portal`, `improv_serial`, `api` med kryptering, `ota` (beskyttet af API-nøglen, uden kodeord), `web_server` v3 med `local: true`. **WPS understøttes ikke af ESPHome.**
 - Logger på DEBUG med sensor/text_sensor/binary_sensor på INFO og component på ERROR. Statuslinje hvert 10. s og hændelser fra `shunt`.
 - **Entiteterne er grupperet** med `web_server: sorting_groups` (Overview, Valve, Position sensor, Controller tuning, Temperature sensor, System), og navnene har gruppen som præfiks, så de også står samlet i HA's alfabetiske lister (brugerens ønske 2026-10-24). Hver entitet har `web_server: {sorting_group_id, sorting_weight}`. Omdøbningen nulstillede de gemte værdier for Kp, Ti, travel og deadband (de stod på standard).
@@ -104,7 +104,6 @@ Undgå strapping-benene 0, 2, 5, 12 og 15 til eksternt udstyr.
 - Interval 10 s: `tick(temperatur, 10 s)`, en sample til dataloggen og statuslinjen.
 - **Datalog (`datalog.h`):** 1440 samples à 16 byte (4 timer hvert 10. s: tid, returtemperatur, sætpunkt, stilling, mål, I-led, flag, motorstarter) og 48 timebuckets med motorstarter. Ca. 25 kB RAM (RAM i alt ca. 42 %). Handleren registreres i `on_boot` med `web_server_base::global_web_server_base->add_handler()`; typerne ligger i `esphome::web_server_idf`. Graf-siden tegner selv på canvas uden eksterne biblioteker. Tidsstempler kommer fra `time: sntp` (id `sntp_time`) i formatet `yyyy-MM-dd HH:mm:ss`; uden ur vises oppetid. CSV sendes i bidder med `httpd_resp_send_chunk`. Sensorerne "Valve motor starts last hour" og "... last 24 h" kommer fra timebuckets.
 - Sensorer til HA: Status, Return temperature, Shunt position, Shunt target, Valve calibration, Valve coast-down, Valve dead time, Valve motor starts, Position sensor (mV eller °, 0 %, 100 %), Position sensor magnet/gain/magnitude (rev 2), Controller P/I term, Temperature sensor address, System WiFi signal, System IP address. Binary: Temperature sensor fault, Valve fault, Position sensor OK. REST-adresserne følger navnene, fx `/select/Mode`, `/switch/Valve%20motor`.
-- Skærm: `mipi_spi` model `T-DISPLAY`, rotation 90°, `color_depth: 8`, `buffer_size: 100%`, opdatering hvert 2. s. Linje 1: temperatur (orange) og stilling (hvid). Linje 2: "SP xx.x°C" og status (rød ved fejl). Hver 3. opdatering vises IP-adressen i stedet, når `full_display` er false. Graferne er fjernet på grund af den defekte skærm.
 
 ### Regulator og motorstyring (`shunt.h`)
 - **PI** i positionsform: `e = SP - T`, `P = Kp·e`, `I += Kp·dt/Ti·e`. Anti-windup med betinget integration og I begrænset til 0–100. Stødfri overgang fra manuel til auto. Start: I = målt stilling (kalibreret føler) eller 0.
@@ -147,18 +146,18 @@ esphome logs --device 192.168.4.188 ventilregulator.yaml       # log over WiFi
 - Den seneste firmware (rev 2, AS5600 over I²C) er kompileret og lagt ind 2026-10-18 (RAM ca. 28 %, flash ca. 56 %).
 - Linjen `fatal error: bits/c++config.h` tidligt i kompileringen er støj og stopper ikke bygningen.
 
-## Status (2026-10-18)
+## Status (2026-10-24)
 
 **Virker:**
-- Firmwaren kører på T-Display nr. 2 og er på WiFi. OTA, webserver og log over WiFi virker. Repository'et er pushet til GitHub (`main` følger `origin/main`).
-- Skærmen er død. Al betjening og aflæsning sker via webUI'en (http://192.168.4.188).
+- Boardet sidder i fyrrummet på et nyt access point (-47 dBm). OTA, webserver, log over WiFi og datalog (`/datalog`) virker. Al betjening sker via webUI'en (http://192.168.4.188); skærmen bruges ikke.
+- DS18B20 (returtemperatur), AS5600 over I²C, FET-modul og retningsoptokobler er tilsluttet og virker. Ventilen er kalibreret (gentagelsespræcision bedre end 0,15 %), og reguleringen kører i Auto.
 
 **Mangler / næste skridt:**
-1. **DS18B20 svarer ikke** efter skærmreparationen (`reading scratch pad failed bus reset`, SENSOR FAULT). Tilslut den igen, og tjek 4,7 kΩ og GPIO 27.
-2. Montér AS5600 over I²C (se *Følere*). Firmwaren er klar og lagt ind; "Magnet" viste "No answer on I2C", før føleren var tilsluttet. Tjek at "Magnet" viser OK, og at "AS5600 gain" ligger midt i 0–128. Tilslut relæ (GPIO 25) og optokobler (GPIO 26 via 330 Ω). Tjek relæmodulets aktive niveau (`motor_inverted`) og retningen (`invert_dir`). Kalibrér ("Calibrate valve"), og følg efterløb, dødtid og motorstarter i loggen. Ny firmware med AS5600 er ikke afprøvet med rigtig føler og motor endnu.
-3. Overvej en substitution `has_display: "false"`, der slår skærmen fra (sparer ca. 32 kB RAM og frigør GPIO 4, 5, 16, 18, 19 og 23).
-4. Indregulér Kp/Ti under rigtig drift ud fra dataloggen (`/datalog`). Ti er sat til 150 s (2026-10-24), Kp 4. Brugerens første indtryk ved Ti 300: for langsom indsvingning og for stort oversving.
-5. Byg strømforsyningen som beskrevet ovenfor.
+1. **Ekstra DS18B20 på kedlens fremløb og husets retur** (til fremkobling og karakteristik). Der er ingen følerlommer, så de monteres udvendigt på røret med varmeledende pasta og isolering. **Firmwaren skal opdateres, før de sættes på bussen:** `on_boot` vælger i dag den første DS18B20, den finder, og vil gemme en vilkårlig adresse som returføler. Følerne skal tildeles efter adresse.
+2. AS5600-magneten sidder for langt væk ("Position sensor gain" = 128, maksimum). Flyt den tættere på (gain ca. 40–90), og kalibrér igen.
+3. Indregulér Kp/Ti under rigtig drift ud fra dataloggen (`/datalog`). Ti er sat til 150 s (2026-10-24), Kp 4. Brugerens første indtryk ved Ti 300: for langsom indsvingning og for stort oversving.
+4. Byg strømforsyningen som beskrevet ovenfor, og sæt 1N5819 over motoren.
+5. Energimåleren (se *Planer*).
 6. Overvej at sætte et kodeord på hotspottet (`ap_password` er tomt, så "Shuntventil" er åbent).
 
 ## Planer
@@ -184,4 +183,4 @@ esphome logs --device 192.168.4.188 ventilregulator.yaml       # log over WiFi
 - **2026-10-04:** Board nr. 1 viste sig defekt, og firmwaren blev lagt ind på board nr. 2 (COM4). Skærmens nederste halvdel er defekt, så layoutet blev reduceret til det vigtigste plus hændelseslog og statuslinje på serielporten. Motoren ombygget til 5 VDC med optokobler-retning. ESPHome installeret i Program Files med build-mappen i ProgramData. WiFi sat op og OTA i brug. Indlæring af dødtid og efterløb tilføjet. Al kode oversat til engelsk og IP-adressen vist på skærmen. Valg af MOSFET og DS18B20-tilslutning gennemgået. DS18B20 fundet og fallback for adressen lavet.
 - **2026-10-05/06:** Hardwarerevisionerne fastlagt (rev 1: potentiometer + relæ, rev 2: AS5600 + MOSFET). Strømforsyningen designet. Energimåleren identificeret som Siemens Ultraheat 2WR5, og valget af læsehoved gennemgået (Hichi TTL fra eBay.de, printversion i eget hus). Det er besluttet, at KSM-controlleren håndteres af Home Assistant.
 - **2026-10-18:** Arbejdet fortsat på pc 2. Python 3.12, ESPHome 2026.9.1 (i venv) og Git 2.55 installeret. Firmwaren kompilerer uændret. CLAUDE.md oprettet som fælles status mellem pc'erne. Overgang til et privat GitHub-repository besluttet (commits som "Jacob Rytter" <jr@pc-smeden.dk>) og første commit pushet. Skærmen fejlede (fladkablets forbindelse). En test med `data_rate: 10MHz` gav samme config-hash som standarden, så den ændrede intet og blev fjernet igen. Displayet fra board 1 blev flyttet over, virkede kortvarigt, og blev så opgivet efter beskadigede loddeøer. Brugeren har fået en AS5600. Den analoge løsning blev fravalgt, og firmwaren blev omlagt til AS5600 over I²C: `shunt.h` blev uafhængig af følertypen (`SensorCfg`, wrap ved 360°), og den hardwarespecifikke del blev lagt i `hw/rev1.yaml`/`hw/rev2.yaml`. Begge revisioner kompilerer, og rev 2 er lagt ind.
-- **2026-10-24:** Board flyttet til fyrrummet. Nyt access point (signal -47 dBm, IP uændret). DS18B20 og AS5600 tilsluttet og virker (AS5600 gain 128 = magneten lidt for langt væk). FET-modulet (LR7843, PC817-indgang) virker; det afbryder minussiden, så motorens plus går direkte til +5 V og minus til OUT. Retningen passer (GPIO 26 tændt = åbn). Sikker stilling ændret til **lukket shunt**: følerfejl og genstart uden kalibreret føler lukker shunten (`fault_open_shunt` erstattet af `fault_hold_position`), og kalibreringen kører nu åben → lukket. Manuel motorstyring tilføjet (Mode "Manual motor", switch "Valve motor", select "Valve direction"), og entiteterne grupperet i webUI'en med præfiks i navnene. Første drift i Auto: stabil og rolig, men langsom (lå 1–2 °C over SP, top 57,2 °C). Ti sat til 150 s, og datalog i RAM tilføjet (`/datalog`, 4 timer + starter pr. time). Slideren for "Manual shunt position" erstattet af et talfelt.
+- **2026-10-24:** Board flyttet til fyrrummet. Nyt access point (signal -47 dBm, IP uændret). DS18B20 og AS5600 tilsluttet og virker (AS5600 gain 128 = magneten lidt for langt væk). FET-modulet (LR7843, PC817-indgang) virker; det afbryder minussiden, så motorens plus går direkte til +5 V og minus til OUT. Retningen passer (GPIO 26 tændt = åbn). Sikker stilling ændret til **lukket shunt**: følerfejl og genstart uden kalibreret føler lukker shunten (`fault_open_shunt` erstattet af `fault_hold_position`), og kalibreringen kører nu åben → lukket. Manuel motorstyring tilføjet (Mode "Manual motor", switch "Valve motor", select "Valve direction"), og entiteterne grupperet i webUI'en med præfiks i navnene. Første drift i Auto: stabil og rolig, men langsom (lå 1–2 °C over SP, top 57,2 °C). Ti sat til 150 s, og datalog i RAM tilføjet (`/datalog`, 4 timer + starter pr. time). Slideren for "Manual shunt position" erstattet af et talfelt. Al skærmkode fjernet. Udvendigt monterede DS18B20 på fremløb og retur gennemgået (ingen følerlommer).

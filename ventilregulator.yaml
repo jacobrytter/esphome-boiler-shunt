@@ -1,5 +1,5 @@
 # Valve controller - PI control of a motorized 3-way return shunt for a stoker boiler
-# Hardware: LilyGO T-Display (ESP32, ST7789 135x240), DS18B20, valve position sensor,
+# Hardware: LilyGO T-Display (ESP32; the display is not used), DS18B20, valve position sensor,
 #           valve motor on 5 VDC: GPIO25 powers the motor, GPIO26 drives the direction optocoupler.
 # Hardware revisions (the position sensor part lives in hw/, selected under "packages"):
 #   Rev 1 (hw/rev1.yaml): potentiometer on the valve shaft (ADC, GPIO33) and a
@@ -17,7 +17,6 @@ substitutions:
   invert_dir: "false"         # "true" if the valve turns the wrong way
   motor_inverted: "false"     # "true" if the motor switch (relay module) is active LOW
   fault_hold_position: "false"  # temperature sensor fault: "false" = close the shunt, "true" = hold position
-  full_display: "false"       # "false" = only the top half of the display is used (defective panel)
 
 esphome:
   name: ${name}
@@ -84,7 +83,6 @@ logger:             # serial port 115200 baud, and over WiFi with "esphome logs"
     sensor: INFO
     text_sensor: INFO
     binary_sensor: INFO
-    component: ERROR  # "took a long time" from the display update
 
 # ---------------------------------------------------------------- Network
 wifi:
@@ -170,18 +168,6 @@ output:
     id: dir_out
     pin:
       number: GPIO26  # through 330 Ω to the optocoupler LED
-  - platform: ledc   # display backlight
-    id: backlight_pwm
-    pin: GPIO4
-
-light:
-  - platform: monochromatic
-    id: backlight
-    name: "System display backlight"
-    output: backlight_pwm
-    restore_mode: ALWAYS_ON
-    entity_category: config
-    web_server: {sorting_group_id: grp_system, sorting_weight: 30}
 
 # ---------------------------------------------------------------- Settings
 # Entity names start with their group (Valve, Position sensor, Controller, Temperature sensor,
@@ -509,7 +495,6 @@ text_sensor:
     web_server: {sorting_group_id: grp_tempsensor, sorting_weight: 20}
   - platform: wifi_info
     ip_address:
-      id: wifi_ip
       name: "System IP address"
       entity_category: diagnostic
       web_server: {sorting_group_id: grp_system, sorting_weight: 20}
@@ -530,72 +515,3 @@ binary_sensor:
     entity_category: diagnostic
     lambda: return shunt::ctl.use_sensor();
     web_server: {sorting_group_id: grp_possensor, sorting_weight: 40}
-  - platform: gpio     # right-hand button on the T-Display toggles the backlight
-    pin:
-      number: GPIO35
-      inverted: true
-    id: button_right
-    internal: true
-    on_press:
-      - light.toggle: backlight
-
-# ---------------------------------------------------------------- Display
-spi:
-  clk_pin: GPIO18
-  mosi_pin: GPIO19
-
-font:
-  - file: "gfonts://Roboto@500"
-    id: f_big
-    size: 34
-    glyphs: " -.%°C0123456789"
-  - file: "gfonts://Roboto@500"
-    id: f_mid
-    size: 20
-    glyphsets: [GF_Latin_Core]
-
-color:
-  - id: c_temp
-    red: 100%
-    green: 45%
-    blue: 0%
-
-display:
-  - platform: mipi_spi
-    model: T-DISPLAY
-    cs_pin: GPIO5
-    dc_pin: GPIO16
-    reset_pin: GPIO23
-    rotation: 90       # landscape: 240 x 135
-    color_depth: 8     # whole screen in one buffer (32 kB)
-    buffer_size: 100%
-    update_interval: 2s
-    lambda: |-
-      auto &c = shunt::ctl;
-      const int W = it.get_width();
-      const bool full = ${full_display};
-
-      // IP address text, or a hint when not connected
-      std::string ip = wifi::global_wifi_component->is_connected()
-                           ? "IP " + id(wifi_ip).state : std::string("No WiFi");
-
-      // Line 1: return temperature (orange) and shunt position (white)
-      float t = c.temp();
-      if (std::isnan(t)) it.print(0, 0, id(f_big), id(c_temp), "--.-°C");
-      else               it.printf(0, 0, id(f_big), id(c_temp), "%.1f°C", t);
-      it.printf(W, 0, id(f_big), Color::WHITE, TextAlign::TOP_RIGHT, "%.0f%%", c.pos());
-
-      // Line 2: setpoint and status (red on fault). With only the top half usable,
-      // the IP address replaces this line every third update (2 of every 6 s).
-      static uint32_t n = 0;
-      n++;
-      if (!full && n % 3 == 0) {
-        it.print(0, 40, id(f_mid), Color::WHITE, ip.c_str());
-      } else {
-        it.printf(0, 40, id(f_mid), Color::WHITE, "SP %.1f°C", c.p.sp);
-        it.printf(W, 40, id(f_mid), c.any_fault() ? Color(255, 0, 0) : Color::WHITE,
-                  TextAlign::TOP_RIGHT, "%s", c.state_text());
-      }
-
-      // Line 3 (full display only): IP address
-      if (full) it.print(0, 70, id(f_mid), Color::WHITE, ip.c_str());

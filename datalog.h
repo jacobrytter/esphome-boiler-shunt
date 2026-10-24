@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 // Data log in RAM - the last 4 hours of the controller every 10 s, plus motor starts per hour
 // for the last 48 hours. Served by the ESPHome web server:
 //   /datalog      page with charts
