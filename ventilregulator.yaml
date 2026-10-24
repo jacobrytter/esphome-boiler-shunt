@@ -197,7 +197,7 @@ number:
     initial_value: 0
     optimistic: true
     restore_value: true
-    mode: slider
+    mode: box           # the web UI slider is hard to drag (state updates interrupt the drag)
     web_server: {sorting_group_id: grp_overview, sorting_weight: 70}
   - platform: template
     id: travel
