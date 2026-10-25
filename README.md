@@ -171,7 +171,7 @@ Firmwaren vælger føler i `ventilregulator.yaml` under `packages`: `hw/rev2.yam
   | House return | Udvendigt på returrøret fra stuehuset, 30 mm isolering | *House return temperature* |
 
 - **Hver føler tildeles sin rolle efter adresse**, og adressen gemmes i flash. Svarer en føler ikke, bruges den gemte adresse alligevel, og målingen kommer af sig selv, når føleren svarer igen.
-- **Sådan tilsluttes en ny føler:** sæt **én** ny føler på bussen ad gangen, og tryk på knappen for dens rolle i gruppen *Temperature sensor* (*assign boiler*, *assign house return* eller *assign return*). Bussen søges igennem igen, og den eneste føler uden rolle får den. Er der ingen eller flere følere uden rolle, sker der intet, og loggen siger hvorfor. *Temperature sensor unassigned* viser følere uden rolle (tryk *search bus* for at opdatere), og *Temperature sensor addresses* viser de gemte adresser.
+- **Sådan tilsluttes en ny føler:** sæt **én** ny føler på bussen ad gangen, og tryk på knappen for dens rolle i gruppen *Temperature sensor* (*assign boiler*, *assign house* eller *assign return*). Bussen søges igennem igen, og den eneste føler uden rolle får den. Er der ingen eller flere følere uden rolle, sker der intet, og loggen siger hvorfor. *Temperature sensor unassigned* viser følere uden rolle (tryk *search bus* for at opdatere), og *Temperature sensor address return/boiler/house* viser de gemte adresser.
 - Den allerførste føler bliver automatisk returføler ved opstart. Skiftes returføleren, sættes den nye på, og der trykkes *assign return*.
 - **Flere følere** kan sidde på samme ledning, fx også en på kedlens fremløb. Hver føler har sin egen adresse, og så skal adressen angives i YAML.
 

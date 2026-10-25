@@ -323,7 +323,7 @@ button:
     on_press: [script.execute: {id: ds_assign, role: 1}]
     web_server: {sorting_group_id: grp_tempsensor, sorting_weight: 40}
   - platform: template
-    name: "Temperature sensor assign house return"
+    name: "Temperature sensor assign house"
     entity_category: config
     on_press: [script.execute: {id: ds_assign, role: 2}]
     web_server: {sorting_group_id: grp_tempsensor, sorting_weight: 50}
@@ -569,16 +569,35 @@ text_sensor:
     lambda: return {shunt::ctl.cal_msg()};
     web_server: {sorting_group_id: grp_valve, sorting_weight: 45}
   - platform: template
-    name: "Temperature sensor addresses"
+    name: "Temperature sensor address return"
     update_interval: 30s
     entity_category: diagnostic
     lambda: |-
-      char buf[96];
-      snprintf(buf, sizeof buf, "return %016llx, boiler %016llx, house %016llx",
-               (unsigned long long) id(g_ds_addr), (unsigned long long) id(g_ds_boiler),
-               (unsigned long long) id(g_ds_house));
+      if (id(g_ds_addr) == 0) return {"not assigned"};
+      char buf[17];
+      snprintf(buf, sizeof buf, "%016llx", (unsigned long long) id(g_ds_addr));
       return {buf};
     web_server: {sorting_group_id: grp_tempsensor, sorting_weight: 20}
+  - platform: template
+    name: "Temperature sensor address boiler"
+    update_interval: 30s
+    entity_category: diagnostic
+    lambda: |-
+      if (id(g_ds_boiler) == 0) return {"not assigned"};
+      char buf[17];
+      snprintf(buf, sizeof buf, "%016llx", (unsigned long long) id(g_ds_boiler));
+      return {buf};
+    web_server: {sorting_group_id: grp_tempsensor, sorting_weight: 22}
+  - platform: template
+    name: "Temperature sensor address house"
+    update_interval: 30s
+    entity_category: diagnostic
+    lambda: |-
+      if (id(g_ds_house) == 0) return {"not assigned"};
+      char buf[17];
+      snprintf(buf, sizeof buf, "%016llx", (unsigned long long) id(g_ds_house));
+      return {buf};
+    web_server: {sorting_group_id: grp_tempsensor, sorting_weight: 24}
   - platform: template
     name: "Temperature sensor unassigned"
     update_interval: 10s

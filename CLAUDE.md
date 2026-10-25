@@ -158,7 +158,7 @@ esphome logs --device 192.168.4.188 ventilregulator.yaml       # log over WiFi
 - DS18B20 (returtemperatur), AS5600 over I²C, FET-modul og retningsoptokobler er tilsluttet og virker. Ventilen er kalibreret (gentagelsespræcision bedre end 0,15 %), og reguleringen kører i Auto.
 
 **Mangler / næste skridt:**
-1. **Tilslut de to nye DS18B20 én ad gangen** og tryk "Temperature sensor assign boiler" / "… house return" (firmwaren er klar og lagt ind 2026-10-25). Derefter: afstem følerne mod hinanden (shunt lukket: return = house return; shunt åben: return ≈ boiler), og brug dem til fremkobling og ventilkarakteristik.
+1. **Tilslut de to nye DS18B20 én ad gangen** og tryk "Temperature sensor assign boiler" / "… assign house" (firmwaren er klar og lagt ind 2026-10-25). Derefter: afstem følerne mod hinanden (shunt lukket: return = house return; shunt åben: return ≈ boiler), og brug dem til fremkobling og ventilkarakteristik.
 2. AS5600-magneten sidder for langt væk ("Position sensor gain" = 128, maksimum). Flyt den tættere på (gain ca. 40–90), og kalibrér igen.
 3. Indregulér Kp/Ti under rigtig drift ud fra dataloggen (`/datalog`). Ti er sat til 150 s (2026-10-24), Kp 4. Brugerens første indtryk ved Ti 300: for langsom indsvingning og for stort oversving.
 4. Byg strømforsyningen som beskrevet ovenfor, og sæt 1N5819 over motoren.
