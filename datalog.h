@@ -5,7 +5,8 @@
 //   /datalog.csv  the samples as CSV
 //   /starts.csv   motor starts per hour as CSV
 // It also serves the main page "/" as a frame: a bar with links to these pages above the
-// ESPHome web UI, which is moved to "/ui". For that, the handler must be registered before
+// ESPHome web UI, which is loaded from "/?ui=1" (the app builds its URLs from the path, so it
+// must stay at "/"). For that, the handler must be registered before
 // the web_server component sets up (see on_boot in the YAML).
 // The log lives in RAM and starts over after a restart.
 
@@ -164,8 +165,8 @@ nav{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center;padding:8px 16px
 iframe{flex:1;border:0;width:100%}a{color:#1971c2}
 @media(prefers-color-scheme:dark){body{background:#1c1c1c;color:#ddd}a{color:#74b0f4}}</style></head>
 <body><nav><strong>Pages:</strong><a href="/datalog">Data log (charts)</a><a href="/datalog.csv">datalog.csv</a>
-<a href="/starts.csv">starts.csv</a><a href="/ui" target="_top">Web UI without the bar</a></nav>
-<iframe src="/ui" title="ESPHome web UI"></iframe></body></html>)HTML";
+<a href="/starts.csv">starts.csv</a><a href="/?ui=1" target="_top">Web UI without the bar</a></nav>
+<iframe src="/?ui=1" title="ESPHome web UI"></iframe></body></html>)HTML";
 
 class Handler : public esphome::web_server_idf::AsyncWebHandler {
  public:
@@ -175,7 +176,7 @@ class Handler : public esphome::web_server_idf::AsyncWebHandler {
     if (request->method() != HTTP_GET) return false;
     char buf[esphome::web_server_idf::AsyncWebServerRequest::URL_BUF_SIZE];
     request->url_to(buf);
-    return !strcmp(buf, "/") || !strcmp(buf, "/ui") || !strcmp(buf, "/datalog") ||
+    return !strcmp(buf, "/") || !strcmp(buf, "/datalog") ||
            !strcmp(buf, "/datalog.csv") || !strcmp(buf, "/starts.csv");
   }
 
@@ -184,11 +185,10 @@ class Handler : public esphome::web_server_idf::AsyncWebHandler {
     request->url_to(ubuf);
     const char *url = ubuf;
     if (!strcmp(url, "/")) {
-      request->send(request->beginResponse(200, "text/html", (const uint8_t *) MAIN_PAGE, sizeof(MAIN_PAGE) - 1));
-      return;
-    }
-    if (!strcmp(url, "/ui")) {
-      this->ui_->handle_index_request(request);  // the ESPHome page that "/" normally serves
+      if (request->hasArg("ui"))
+        this->ui_->handle_index_request(request);  // the ESPHome page that "/" normally serves
+      else
+        request->send(request->beginResponse(200, "text/html", (const uint8_t *) MAIN_PAGE, sizeof(MAIN_PAGE) - 1));
       return;
     }
     if (!strcmp(url, "/datalog")) {
