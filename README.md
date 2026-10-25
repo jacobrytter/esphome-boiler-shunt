@@ -162,7 +162,17 @@ Firmwaren vælger føler i `ventilregulator.yaml` under `packages`: `hw/rev2.yam
 - **Nemmeste løsning:** et "DS18B20 adapter"-modul med skrueterminaler. Det har pull-up-modstanden og ofte en lille kondensator indbygget.
 - **Ledningsfarver** varierer mellem fabrikanter. Rød er næsten altid VDD og sort GND. Er du i tvivl, så mål eller find databladet.
 - **Kabel:** brug snoet ledning, og hold den væk fra motorledningerne. Sæt gerne 100 nF mellem VDD og GND ved føleren.
-- **Adressen findes automatisk.** Ved hver opstart søges der efter føleren, og den fundne adresse gemmes i flash. Den kan ses under *Temperature sensor address* i webinterfacet. Svarer føleren ikke ved opstart, bruges den gemte adresse, og målingen kommer af sig selv, når føleren svarer igen. En ny føler bliver fundet og gemt ved næste opstart.
+- **Tre følere på samme bus** (alle parallelt på GPIO 27, med én fælles 4,7 kΩ pull-up):
+
+  | Rolle | Placering | Enhed i webinterfacet |
+  |---|---|---|
+  | Return | Efter pumpen, vandet tilbage til kedlen (det reguleres på) | *Return temperature* |
+  | Boiler | Følerlomme øverst i kedlen | *Boiler temperature* |
+  | House return | Udvendigt på returrøret fra stuehuset, 30 mm isolering | *House return temperature* |
+
+- **Hver føler tildeles sin rolle efter adresse**, og adressen gemmes i flash. Svarer en føler ikke, bruges den gemte adresse alligevel, og målingen kommer af sig selv, når føleren svarer igen.
+- **Sådan tilsluttes en ny føler:** sæt **én** ny føler på bussen ad gangen, og tryk på knappen for dens rolle i gruppen *Temperature sensor* (*assign boiler*, *assign house return* eller *assign return*). Bussen søges igennem igen, og den eneste føler uden rolle får den. Er der ingen eller flere følere uden rolle, sker der intet, og loggen siger hvorfor. *Temperature sensor unassigned* viser følere uden rolle (tryk *search bus* for at opdatere), og *Temperature sensor addresses* viser de gemte adresser.
+- Den allerførste føler bliver automatisk returføler ved opstart. Skiftes returføleren, sættes den nye på, og der trykkes *assign return*.
 - **Flere følere** kan sidde på samme ledning, fx også en på kedlens fremløb. Hver føler har sin egen adresse, og så skal adressen angives i YAML.
 
 Føleren skal have god termisk kontakt. Den bedste løsning er en dykrørslomme. Alternativt spændes den fast på røret med varmeledningspasta og isoleres godt udenpå.

@@ -52,27 +52,21 @@ esphome:
             call.perform();
           }
 
-          // DS18B20: use the sensor found on the bus at boot and remember its address.
-          // If none answers, fall back to the stored address so readings resume by
-          // themselves when the sensor comes back.
-          uint64_t found = 0;
-          for (uint64_t a : id(ow_bus)->get_devices())
-            if ((a & 0xff) == 0x28) { found = a; break; }  // 0x28 = DS18B20 family code
-          if (found != 0) {
-            if (found != id(g_ds_addr)) {
-              ESP_LOGI("shunt", "DS18B20 found at 0x%016llx - address stored", (unsigned long long) found);
-              id(g_ds_addr) = found;
-            } else {
-              ESP_LOGI("shunt", "DS18B20 found at 0x%016llx", (unsigned long long) found);
-            }
-            id(return_temp)->set_address(found);
-          } else if (id(g_ds_addr) != 0) {
-            ESP_LOGW("shunt", "No DS18B20 found at boot - using stored address 0x%016llx",
-                     (unsigned long long) id(g_ds_addr));
-            id(return_temp)->set_address(id(g_ds_addr));
-          } else {
-            ESP_LOGW("shunt", "No DS18B20 found at boot and no stored address");
+          // DS18B20: each sensor has a role with a stored address (see the "Temperature sensor
+          // assign" buttons). A stored address is used even when the sensor does not answer,
+          // so readings resume by themselves when it comes back. Only the very first sensor
+          // is taken automatically, as the return sensor.
+          auto devs = id(ow_bus)->get_devices();
+          if (id(g_ds_addr) == 0 && devs.size() == 1 && (devs[0] & 0xff) == 0x28) {
+            id(g_ds_addr) = devs[0];
+            ESP_LOGI("shunt", "First DS18B20 0x%016llx stored as the return sensor", (unsigned long long) devs[0]);
           }
+          for (uint64_t a : devs) {
+            const char *role = a == id(g_ds_addr) ? "return" : a == id(g_ds_boiler) ? "boiler"
+                             : a == id(g_ds_house) ? "house return" : "UNASSIGNED";
+            ESP_LOGI("shunt", "1-Wire device 0x%016llx: %s", (unsigned long long) a, role);
+          }
+      - script.execute: ds_apply
 
 esp32:
   board: esp32dev
@@ -147,7 +141,15 @@ globals:
     type: float
     restore_value: true
     initial_value: "NAN"
-  - id: g_ds_addr    # last DS18B20 address found at boot (fallback when none is found)
+  - id: g_ds_addr    # DS18B20 addresses per role (0 = not assigned): return after the pump,
+    type: uint64_t   # boiler (pocket at the top of the boiler), house return (outside on the pipe)
+    restore_value: true
+    initial_value: "0"
+  - id: g_ds_boiler
+    type: uint64_t
+    restore_value: true
+    initial_value: "0"
+  - id: g_ds_house
     type: uint64_t
     restore_value: true
     initial_value: "0"
@@ -300,6 +302,63 @@ button:
     name: "System restart"
     entity_category: config
     web_server: {sorting_group_id: grp_system, sorting_weight: 40}
+  # Assign a new DS18B20: connect ONE new sensor, then press the button for its role. The bus
+  # is searched again, and the only sensor without a role gets this one.
+  - platform: template
+    name: "Temperature sensor assign boiler"
+    entity_category: config
+    on_press: [script.execute: {id: ds_assign, role: 1}]
+    web_server: {sorting_group_id: grp_tempsensor, sorting_weight: 40}
+  - platform: template
+    name: "Temperature sensor assign house return"
+    entity_category: config
+    on_press: [script.execute: {id: ds_assign, role: 2}]
+    web_server: {sorting_group_id: grp_tempsensor, sorting_weight: 50}
+  - platform: template
+    name: "Temperature sensor assign return"
+    entity_category: config
+    on_press: [script.execute: {id: ds_assign, role: 0}]
+    web_server: {sorting_group_id: grp_tempsensor, sorting_weight: 60}
+  - platform: template
+    name: "Temperature sensor search bus"
+    entity_category: config
+    on_press:
+      - lambda: |-
+          id(ow_bus)->search();
+          ESP_LOGI("shunt", "1-Wire search: %u device(s)", (unsigned) id(ow_bus)->get_devices().size());
+    web_server: {sorting_group_id: grp_tempsensor, sorting_weight: 70}
+
+script:
+  - id: ds_apply       # give each DS18B20 sensor the stored address of its role
+    then:
+      - lambda: |-
+          auto apply = [](dallas_temp::DallasTemperatureSensor *s, uint64_t a) {
+            s->set_address(a);              // 0 = no sensor: no readings
+            if (a == 0) s->publish_state(NAN);
+          };
+          apply(id(return_temp), id(g_ds_addr));
+          apply(id(boiler_temp), id(g_ds_boiler));
+          apply(id(house_temp), id(g_ds_house));
+  - id: ds_assign      # role: 0 = return, 1 = boiler, 2 = house return
+    parameters:
+      role: int
+    then:
+      - lambda: |-
+          static const char *const NAMES[] = {"return", "boiler", "house return"};
+          id(ow_bus)->search();
+          std::vector<uint64_t> fresh;
+          for (uint64_t a : id(ow_bus)->get_devices())
+            if ((a & 0xff) == 0x28 && a != id(g_ds_addr) && a != id(g_ds_boiler) && a != id(g_ds_house))
+              fresh.push_back(a);
+          if (fresh.size() != 1) {
+            ESP_LOGW("shunt", "Assign %s: %u DS18B20 without a role on the bus - connect one new sensor at a time",
+                     NAMES[role], (unsigned) fresh.size());
+            return;
+          }
+          uint64_t &slot = role == 0 ? id(g_ds_addr) : role == 1 ? id(g_ds_boiler) : id(g_ds_house);
+          slot = fresh[0];
+          ESP_LOGI("shunt", "DS18B20 0x%016llx assigned as %s", (unsigned long long) fresh[0], NAMES[role]);
+      - script.execute: ds_apply
 
 # ---------------------------------------------------------------- Control
 interval:
@@ -345,7 +404,7 @@ interval:
       - lambda: |-
           auto &c = shunt::ctl;
           c.tick(id(return_temp).state, 10.0f);
-          datalog::dlog.add(millis() / 1000, c.temp(), c.p.sp, c.pos(), c.out(), c.integ(),
+          datalog::dlog.add(millis() / 1000, c.temp(), id(boiler_temp).state, id(house_temp).state, c.p.sp, c.pos(), c.out(), c.integ(),
                             (c.p.manual ? datalog::F_MANUAL : 0) | (c.p.direct ? datalog::F_DIRECT : 0) |
                             (c.sensor_fault() ? datalog::F_SENSOR_FAULT : 0) |
                             (c.valve_fault() ? datalog::F_VALVE_FAULT : 0) |
@@ -360,14 +419,26 @@ interval:
 
 # ---------------------------------------------------------------- Measurements
 sensor:
+  # DS18B20: no fixed addresses in the configuration. The address of each role is stored
+  # (g_ds_addr, g_ds_boiler, g_ds_house) and set by the ds_apply script.
   - platform: dallas_temp
     id: return_temp
-    name: "Return temperature"
-    # No fixed address: the sensor is searched for at every boot. The address found is
-    # stored (g_ds_addr) and used as a fallback when no sensor answers at boot (see on_boot).
+    name: "Return temperature"   # after the pump: the water going back into the boiler
     resolution: 12
     update_interval: 10s
     web_server: {sorting_group_id: grp_overview, sorting_weight: 40}
+  - platform: dallas_temp
+    id: boiler_temp
+    name: "Boiler temperature"   # pocket at the top of the boiler
+    resolution: 12
+    update_interval: 10s
+    web_server: {sorting_group_id: grp_overview, sorting_weight: 42}
+  - platform: dallas_temp
+    id: house_temp
+    name: "House return temperature"   # outside on the return pipe from the house, insulated
+    resolution: 12
+    update_interval: 10s
+    web_server: {sorting_group_id: grp_overview, sorting_weight: 44}
 
   - platform: template
     name: "Shunt position"
@@ -485,14 +556,30 @@ text_sensor:
     lambda: return {shunt::ctl.cal_msg()};
     web_server: {sorting_group_id: grp_valve, sorting_weight: 45}
   - platform: template
-    name: "Temperature sensor address"
-    update_interval: 60s
+    name: "Temperature sensor addresses"
+    update_interval: 30s
     entity_category: diagnostic
     lambda: |-
-      char buf[19];
-      snprintf(buf, sizeof buf, "0x%016llx", (unsigned long long) id(g_ds_addr));
+      char buf[96];
+      snprintf(buf, sizeof buf, "return %016llx, boiler %016llx, house %016llx",
+               (unsigned long long) id(g_ds_addr), (unsigned long long) id(g_ds_boiler),
+               (unsigned long long) id(g_ds_house));
       return {buf};
     web_server: {sorting_group_id: grp_tempsensor, sorting_weight: 20}
+  - platform: template
+    name: "Temperature sensor unassigned"
+    update_interval: 10s
+    entity_category: diagnostic
+    lambda: |-
+      std::string s;
+      char buf[20];
+      for (uint64_t a : id(ow_bus)->get_devices()) {
+        if (a == id(g_ds_addr) || a == id(g_ds_boiler) || a == id(g_ds_house)) continue;
+        snprintf(buf, sizeof buf, "%s%016llx", s.empty() ? "" : ", ", (unsigned long long) a);
+        s += buf;
+      }
+      return s.empty() ? std::string("none") : s;
+    web_server: {sorting_group_id: grp_tempsensor, sorting_weight: 30}
   - platform: wifi_info
     ip_address:
       name: "System IP address"

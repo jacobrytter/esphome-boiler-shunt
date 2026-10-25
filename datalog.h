@@ -18,7 +18,7 @@
 namespace datalog {
 
 constexpr int SAMPLE_S = 10;                   // one sample per controller tick
-constexpr int SAMPLES = 4 * 3600 / SAMPLE_S;   // 4 hours = 1440 samples (16 bytes each)
+constexpr int SAMPLES = 4 * 3600 / SAMPLE_S;   // 4 hours = 1440 samples (20 bytes each)
 constexpr int HOURS = 48;
 
 enum Flags : uint8_t {
@@ -27,7 +27,8 @@ enum Flags : uint8_t {
 
 struct Sample {
   uint32_t t;                  // uptime, s
-  int16_t temp;                // °C x 100, INT16_MIN = no reading
+  int16_t temp;                // °C x 100, INT16_MIN = no reading (return after the pump)
+  int16_t boiler, house;       // °C x 100, INT16_MIN = no reading
   int16_t sp;                  // °C x 10
   int16_t pos, out, integ;     // % x 10
   uint8_t flags;
@@ -43,7 +44,7 @@ class Log {
  public:
   std::function<time_t()> now_epoch;  // wall clock (0 = not known yet); set by the YAML
 
-  void add(uint32_t uptime_s, float temp, float sp, float pos, float out, float integ,
+  void add(uint32_t uptime_s, float temp, float boiler, float house, float sp, float pos, float out, float integ,
            uint8_t flags, uint32_t total_starts) {
     uint32_t st = first_ ? 0 : total_starts - last_starts_;
     last_starts_ = total_starts;
@@ -51,7 +52,9 @@ class Log {
 
     Sample &s = buf_[head_];
     s.t = uptime_s;
-    s.temp = std::isnan(temp) ? INT16_MIN : (int16_t) lroundf(temp * 100.0f);
+    s.temp = c100(temp);
+    s.boiler = c100(boiler);
+    s.house = c100(house);
     s.sp = (int16_t) lroundf(sp * 10.0f);
     s.pos = (int16_t) lroundf(pos * 10.0f);
     s.out = (int16_t) lroundf(out * 10.0f);
@@ -96,6 +99,8 @@ class Log {
   }
 
  private:
+  static int16_t c100(float v) { return std::isnan(v) ? INT16_MIN : (int16_t) lroundf(v * 100.0f); }
+
   Sample buf_[SAMPLES] = {};
   int head_ = 0, count_ = 0;
   HourBucket hours_[HOURS] = {};
@@ -113,7 +118,7 @@ static const char PAGE[] = R"HTML(<!doctype html><html><head><meta charset="utf-
 h2{font-size:16px;margin:18px 0 4px}.k{display:inline-block;width:12px;height:3px;margin:0 4px 3px 12px}p{margin:4px 0;font-size:13px;color:#555}</style></head>
 <body><h1 style="font-size:20px">Valve controller - last 4 hours</h1>
 <p><a href="/">Back</a> · <a href="/datalog.csv">datalog.csv</a> · <a href="/starts.csv">starts.csv</a> · <span id="info"></span></p>
-<h2>Temperature<span class="k" style="background:#e8590c"></span>return<span class="k" style="background:#888"></span>setpoint</h2><canvas id="c1"></canvas>
+<h2>Temperature<span class="k" style="background:#e8590c"></span>return<span class="k" style="background:#c92a2a"></span>boiler<span class="k" style="background:#1971c2"></span>house return<span class="k" style="background:#888"></span>setpoint</h2><canvas id="c1"></canvas>
 <h2>Valve<span class="k" style="background:#1971c2"></span>position<span class="k" style="background:#2f9e44"></span>target<span class="k" style="background:#ae3ec9"></span>I term</h2><canvas id="c2"></canvas>
 <h2>Motor starts per 10 min</h2><canvas id="c3"></canvas>
 <h2>Motor starts per hour (48 h)</h2><canvas id="c4"></canvas>
@@ -133,13 +138,19 @@ g.beginPath();let up=false;xs.forEach((x,i)=>{const v=s.v[i];if(v===null||isNaN(
 Promise.all([fetch('/datalog.csv').then(r=>r.text()),fetch('/starts.csv').then(r=>r.text())]).then(([a,b])=>{
 const d=csv(a),h=csv(b);if(!d.length){document.getElementById('info').textContent='no data yet';return}
 const xs=d.map(r=>+r[1]),lab=d.map(r=>r[0]),f=i=>d.map(r=>r[i]===''?null:+r[i]);
-draw('c1',xs,[{v:f(3),c:'#888'},{v:f(2),c:'#e8590c'}],{lab});
-draw('c2',xs,[{v:f(6),c:'#ae3ec9'},{v:f(5),c:'#2f9e44'},{v:f(4),c:'#1971c2'}],{min:0,max:100,lab});
-const bx=[],bv=[],bl=[];for(let i=0;i<d.length;i+=60){let s=0;for(let j=i;j<Math.min(i+60,d.length);j++)s+=+d[j][8];bx.push(xs[i]);bv.push(s);bl.push(lab[i])}
+draw('c1',xs,[{v:f(5),c:'#888'},{v:f(4),c:'#1971c2'},{v:f(3),c:'#c92a2a'},{v:f(2),c:'#e8590c'}],{lab});
+draw('c2',xs,[{v:f(8),c:'#ae3ec9'},{v:f(7),c:'#2f9e44'},{v:f(6),c:'#1971c2'}],{min:0,max:100,lab});
+const bx=[],bv=[],bl=[];for(let i=0;i<d.length;i+=60){let s=0;for(let j=i;j<Math.min(i+60,d.length);j++)s+=+d[j][10];bx.push(xs[i]);bv.push(s);bl.push(lab[i])}
 draw('c3',bx,[{v:bv,c:'#1971c2',bar:1}],{min:0,max:Math.max(5,...bv),lab:bl});
 draw('c4',h.map(r=>+r[1]),[{v:h.map(r=>+r[2]),c:'#1971c2',bar:1}],{min:0,max:Math.max(5,...h.map(r=>+r[2])),lab:h.map(r=>r[0])});
-const tot=d.reduce((s,r)=>s+ +r[8],0);document.getElementById('info').textContent=d.length+' samples, '+tot+' motor starts in this period'})
+const tot=d.reduce((s,r)=>s+ +r[10],0);document.getElementById('info').textContent=d.length+' samples, '+tot+' motor starts in this period'})
 </script></body></html>)HTML";
+
+// °C x 100 as text, empty when there is no reading
+inline void fmt_c(int16_t v, char (&buf)[12]) {
+  if (v == INT16_MIN) buf[0] = '\0';
+  else snprintf(buf, sizeof buf, "%.2f", v / 100.0f);
+}
 
 class Handler : public esphome::web_server_idf::AsyncWebHandler {
  public:
@@ -164,7 +175,7 @@ class Handler : public esphome::web_server_idf::AsyncWebHandler {
     uint32_t now = esphome::millis() / 1000;
     std::string out;
     out.reserve(1500);
-    char line[96], ts[24];
+    char line[128], ts[24];
     auto flush = [&](bool force) {
       if (out.size() > 1200 || (force && !out.empty())) {
         httpd_resp_send_chunk(req, out.data(), out.size());
@@ -172,13 +183,15 @@ class Handler : public esphome::web_server_idf::AsyncWebHandler {
       }
     };
     if (!strcmp(url, "/datalog.csv")) {
-      out = "time,uptime_s,return_c,setpoint_c,position_pct,target_pct,i_term_pct,flags,starts\n";
+      out = "time,uptime_s,return_c,boiler_c,house_return_c,setpoint_c,position_pct,target_pct,i_term_pct,flags,starts\n";
       for (int i = 0; i < dlog.count(); i++) {
         const Sample &s = dlog.sample(i);
         dlog.format_time(s.t, now, ts, sizeof ts);
-        char temp[12] = "";
-        if (s.temp != INT16_MIN) snprintf(temp, sizeof temp, "%.2f", s.temp / 100.0f);
-        snprintf(line, sizeof line, "%s,%u,%s,%.1f,%.1f,%.1f,%.1f,%u,%u\n", ts, (unsigned) s.t, temp,
+        char t1[12], t2[12], t3[12];
+        fmt_c(s.temp, t1);
+        fmt_c(s.boiler, t2);
+        fmt_c(s.house, t3);
+        snprintf(line, sizeof line, "%s,%u,%s,%s,%s,%.1f,%.1f,%.1f,%.1f,%u,%u\n", ts, (unsigned) s.t, t1, t2, t3,
                  s.sp / 10.0f, s.pos / 10.0f, s.out / 10.0f, s.integ / 10.0f, s.flags, s.starts);
         out += line;
         flush(false);
