@@ -256,16 +256,16 @@ Vil du slet ikke have et hotspot, når først WiFi er sat op, så slet hele `ap:
 
 Alt kan styres fra webinterfacet `http://ventilregulator.local` (eller IP-adressen) og fra Home Assistant, hvor enheden dukker op automatisk.
 
-WebUI'en viser enhederne i grupper: **Overview**, **Valve**, **Position sensor**, **Controller tuning**, **Temperature sensor** og **System**. Navnene begynder med gruppens navn, så de også står samlet i Home Assistants alfabetiske lister.
+WebUI'en viser enhederne i grupper: **Overview**, **Manual control**, **Valve**, **Position sensor**, **Controller tuning**, **Temperature sensor** og **System**. Navnene begynder med gruppens navn, så de også står samlet i Home Assistants alfabetiske lister.
 
 | Enhed | Funktion |
 |---|---|
 | Status | AUTO, MANUAL, MANUAL MOTOR, CALIBRATING, SENSOR FAULT eller VALVE FAULT |
-| Mode | **Auto** (regulering), **Manual position** (ventilen kører til *Manual shunt position*) eller **Manual motor** (motoren styres direkte med *Valve motor* og *Valve direction*) |
+| Mode | **Auto** (regulering), **Manual position** (ventilen kører til *Manual position target*) eller **Manual motor** (motoren styres direkte med *Manual motor run* og *Manual motor direction*) |
 | Setpoint | Ønsket minimum returtemperatur (standard 55 °C) |
-| Manual shunt position | Stilling i *Manual position* |
-| Valve direction | *Open* eller *Close* til *Manual motor* |
-| Valve motor | Tænder motoren i den valgte retning. Skifter selv *Mode* til *Manual motor*. Slukker selv ved endestop og efter 1,5 × gangtiden. Skift af retning undervejs stopper motoren og starter den i den nye retning. |
+| Manual position target | Stilling i *Manual position*. Skifter selv *Mode* til *Manual position*, når den ændres. |
+| Manual motor direction | *Open* eller *Close* til *Manual motor* |
+| Manual motor run | Tænder motoren i den valgte retning. Skifter selv *Mode* til *Manual motor*. Slukker selv ved endestop og efter 1,5 × gangtiden. Skift af retning undervejs stopper motoren og starter den i den nye retning. |
 | Valve calibrate | Kører helt åben og derefter helt lukket, lærer stillingsfølerens endepunkter og måler gangtiden. Slutter med shunten lukket. |
 | Valve travel time 0-100 % | Måles automatisk af kalibreringen |
 | Valve deadband | I Auto: hvor meget regulatoren skal have ophobet, før motoren kører (standard 3 %, svarende til ventilens mindste skridt). Et retningsskift kræver 1,5 × dødbåndet. I *Manual position*: tolerancen på stillingen. |
@@ -276,9 +276,9 @@ Alle indstillinger gemmes i flash. *Manual motor* gemmes ikke: efter en genstart
 ## Idriftsættelse
 
 1. **Tør test uden 230 V på motoren.** Tjek at relæerne klikker, og at temperaturen vises i webinterfacet.
-2. **Retning.** Sæt *Valve direction* til Open, og tænd *Valve motor*. Ventilen skal nu åbne for shunten, og *Position sensor* skal ændre sig. Kører den forkert, så sæt `invert_dir: "true"`.
+2. **Retning.** Sæt *Manual motor direction* til Open, og tænd *Manual motor run*. Ventilen skal nu åbne for shunten, og *Position sensor* skal ændre sig. Kører den forkert, så sæt `invert_dir: "true"`.
 3. **Kalibrering.** Tryk *Valve calibrate*, og vent til *Valve calibration* viser "Calibration OK".
-4. Sæt *Mode* til Manual position, og prøv 25, 50 og 75 %. *Shunt position* skal følge med inden for et par procent. Tjek samtidig, at ventilen faktisk blander gradvist.
+4. Skriv 25, 50 og 75 % i *Manual position target* (Mode skifter selv til Manual position). *Shunt position* skal følge med inden for et par procent. Tjek samtidig, at ventilen faktisk blander gradvist.
 5. Sæt *Mode* til Auto.
 
 ## Indregulering (Kp og Ti)

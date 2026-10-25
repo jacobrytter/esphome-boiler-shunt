@@ -115,6 +115,9 @@ web_server:         # http://ventilregulator.local
     - id: grp_overview
       name: "Overview"
       sorting_weight: 10
+    - id: grp_manual
+      name: "Manual control"
+      sorting_weight: 15
     - id: grp_valve
       name: "Valve"
       sorting_weight: 20
@@ -189,7 +192,9 @@ number:
     web_server: {sorting_group_id: grp_overview, sorting_weight: 30}
   - platform: template
     id: manual_pos
-    name: "Manual shunt position"
+    # Manual controls are named after the mode they belong to; using one selects that mode
+    # (the web UI cannot grey out controls that do not apply)
+    name: "Manual position target"
     unit_of_measurement: "%"
     min_value: 0
     max_value: 100
@@ -198,7 +203,15 @@ number:
     optimistic: true
     restore_value: true
     mode: box           # the web UI slider is hard to drag (state updates interrupt the drag)
-    web_server: {sorting_group_id: grp_overview, sorting_weight: 70}
+    set_action:         # only on a change from the UI/HA, not when restored at boot
+      - lambda: |-
+          auto idx = id(mode).active_index();
+          if (!idx.has_value() || *idx != 1) {
+            auto call = id(mode).make_call();
+            call.set_index(1);
+            call.perform();
+          }
+    web_server: {sorting_group_id: grp_manual, sorting_weight: 10}
   - platform: template
     id: travel
     name: "Valve travel time 0-100 %"
@@ -264,18 +277,18 @@ select:
     web_server: {sorting_group_id: grp_overview, sorting_weight: 20}
   - platform: template
     id: valve_direction
-    name: "Valve direction"
+    name: "Manual motor direction"
     options: ["Close", "Open"]
     initial_option: "Close"
     optimistic: true
-    web_server: {sorting_group_id: grp_valve, sorting_weight: 10}
+    web_server: {sorting_group_id: grp_manual, sorting_weight: 20}
 
 switch:
   # Runs the motor directly (Mode = Manual motor). Stops by itself at an end stop and after
   # 1.5 x the travel time. Turning it on switches Mode to "Manual motor".
   - platform: template
     id: valve_motor
-    name: "Valve motor"
+    name: "Manual motor run"
     lambda: return shunt::ctl.p.jog_on;
     turn_on_action:
       - lambda: |-
@@ -289,7 +302,7 @@ switch:
           shunt::ctl.p.jog_on = true;
     turn_off_action:
       - lambda: shunt::ctl.p.jog_on = false;
-    web_server: {sorting_group_id: grp_valve, sorting_weight: 20}
+    web_server: {sorting_group_id: grp_manual, sorting_weight: 30}
 
 button:
   - platform: template
