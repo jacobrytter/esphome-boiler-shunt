@@ -285,7 +285,7 @@ Alle indstillinger gemmes i flash. *Manual motor* gemmes ikke: efter en genstart
 
 Udgangspunktet er **Kp = 4 %/°C og Ti = 150 s** med regulering hvert 10. sekund. Det er bevidst forsigtigt. (Ti var oprindelig 300 s, men føleren sidder 120 cm efter ventilen bag pumpen, så dødtiden er kort.)
 
-Brug **dataloggen** på `http://ventilregulator.local/datalog` til at bedømme reguleringen: grafer over de sidste 4 timer (returtemperatur, sætpunkt, stilling, mål og I-led hvert 10. sekund) og motorstarter pr. 10 min og pr. time. Rådata kan hentes som `datalog.csv` og `starts.csv` (fx til Excel). Loggen ligger i RAM og starter forfra efter en genstart.
+Brug **dataloggen** (link øverst på hovedsiden, eller `http://ventilregulator.local/datalog`) til at bedømme reguleringen: grafer over de sidste 4 timer (returtemperatur, sætpunkt, stilling, mål og I-led hvert 10. sekund) og motorstarter pr. 10 min og pr. time. Rådata kan hentes som `datalog.csv` og `starts.csv` (fx til Excel). Loggen ligger i RAM og starter forfra efter en genstart.
 
 - **Kp** = hvor mange procent ventilen flytter sig pr. grad afvigelse. Et større tal giver hurtigere og mere urolig regulering.
 - **Ti** = hvor hurtigt den resterende afvigelse fjernes. Et mindre tal giver hurtigere regulering, men mere oversving.

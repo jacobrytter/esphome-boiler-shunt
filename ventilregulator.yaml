@@ -26,47 +26,50 @@ esphome:
     - shunt.h
     - datalog.h      # 4 h data log in RAM, served at /datalog
   on_boot:
-    priority: -100
-    then:
-      - lambda: |-
-          auto &c = shunt::ctl;
-          c.end0 = id(g_end0);
-          c.end100 = id(g_end100);
-          c.p.invert_dir = ${invert_dir};
-          c.p.fault_hold_position = ${fault_hold_position};
-          c.loaded = true;
+    # Before the web server sets up (priority 249), so this handler comes first and can serve "/"
+    - priority: 600
+      then:
+        - lambda: web_server_base::global_web_server_base->add_handler(new datalog::Handler(id(web_ui)));
+    - priority: -100
+      then:
+        - lambda: |-
+            auto &c = shunt::ctl;
+            c.end0 = id(g_end0);
+            c.end100 = id(g_end100);
+            c.p.invert_dir = ${invert_dir};
+            c.p.fault_hold_position = ${fault_hold_position};
+            c.loaded = true;
 
-          // Data log: wall clock for the time stamps, and the /datalog pages
-          datalog::dlog.now_epoch = []() -> time_t {
-            auto t = id(sntp_time).now();
-            return t.is_valid() ? t.timestamp : 0;
-          };
-          web_server_base::global_web_server_base->add_handler(new datalog::Handler());
+            // Data log: wall clock for the time stamps, and the /datalog pages
+            datalog::dlog.now_epoch = []() -> time_t {
+              auto t = id(sntp_time).now();
+              return t.is_valid() ? t.timestamp : 0;
+            };
 
-          // Manual motor is for commissioning only; never come back up in it after a restart
-          auto idx = id(mode).active_index();
-          if (idx.has_value() && *idx == 2) {
-            ESP_LOGW("shunt", "Mode was Manual motor at boot - switching to Auto");
-            auto call = id(mode).make_call();
-            call.set_index(0);
-            call.perform();
-          }
+            // Manual motor is for commissioning only; never come back up in it after a restart
+            auto idx = id(mode).active_index();
+            if (idx.has_value() && *idx == 2) {
+              ESP_LOGW("shunt", "Mode was Manual motor at boot - switching to Auto");
+              auto call = id(mode).make_call();
+              call.set_index(0);
+              call.perform();
+            }
 
-          // DS18B20: each sensor has a role with a stored address (see the "Temperature sensor
-          // assign" buttons). A stored address is used even when the sensor does not answer,
-          // so readings resume by themselves when it comes back. Only the very first sensor
-          // is taken automatically, as the return sensor.
-          auto devs = id(ow_bus)->get_devices();
-          if (id(g_ds_addr) == 0 && devs.size() == 1 && (devs[0] & 0xff) == 0x28) {
-            id(g_ds_addr) = devs[0];
-            ESP_LOGI("shunt", "First DS18B20 0x%016llx stored as the return sensor", (unsigned long long) devs[0]);
-          }
-          for (uint64_t a : devs) {
-            const char *role = a == id(g_ds_addr) ? "return" : a == id(g_ds_boiler) ? "boiler"
-                             : a == id(g_ds_house) ? "house return" : "UNASSIGNED";
-            ESP_LOGI("shunt", "1-Wire device 0x%016llx: %s", (unsigned long long) a, role);
-          }
-      - script.execute: ds_apply
+            // DS18B20: each sensor has a role with a stored address (see the "Temperature sensor
+            // assign" buttons). A stored address is used even when the sensor does not answer,
+            // so readings resume by themselves when it comes back. Only the very first sensor
+            // is taken automatically, as the return sensor.
+            auto devs = id(ow_bus)->get_devices();
+            if (id(g_ds_addr) == 0 && devs.size() == 1 && (devs[0] & 0xff) == 0x28) {
+              id(g_ds_addr) = devs[0];
+              ESP_LOGI("shunt", "First DS18B20 0x%016llx stored as the return sensor", (unsigned long long) devs[0]);
+            }
+            for (uint64_t a : devs) {
+              const char *role = a == id(g_ds_addr) ? "return" : a == id(g_ds_boiler) ? "boiler"
+                               : a == id(g_ds_house) ? "house return" : "UNASSIGNED";
+              ESP_LOGI("shunt", "1-Wire device 0x%016llx: %s", (unsigned long long) a, role);
+            }
+        - script.execute: ds_apply
 
 esp32:
   board: esp32dev
@@ -107,7 +110,8 @@ api:                # Home Assistant (optional)
 ota:                # protected by the API encryption key
   - platform: esphome
 
-web_server:         # http://ventilregulator.local
+web_server:         # http://ventilregulator.local ("/" is a frame with links, see datalog.h)
+  id: web_ui
   port: 80
   version: 3
   local: true

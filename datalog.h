@@ -4,6 +4,9 @@
 //   /datalog      page with charts
 //   /datalog.csv  the samples as CSV
 //   /starts.csv   motor starts per hour as CSV
+// It also serves the main page "/" as a frame: a bar with links to these pages above the
+// ESPHome web UI, which is moved to "/ui". For that, the handler must be registered before
+// the web_server component sets up (see on_boot in the YAML).
 // The log lives in RAM and starts over after a restart.
 
 #include <algorithm>
@@ -14,6 +17,7 @@
 #include <functional>
 #include <string>
 #include "esphome/components/web_server_base/web_server_base.h"
+#include "esphome/components/web_server/web_server.h"
 
 namespace datalog {
 
@@ -152,19 +156,41 @@ inline void fmt_c(int16_t v, char (&buf)[12]) {
   else snprintf(buf, sizeof buf, "%.2f", v / 100.0f);
 }
 
+// Main page: link bar above the ESPHome web UI in a frame
+static const char MAIN_PAGE[] = R"HTML(<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Valve controller</title>
+<style>html,body{margin:0;height:100%}body{display:flex;flex-direction:column;font:14px sans-serif;background:#fff;color:#222}
+nav{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center;padding:8px 16px;border-bottom:1px solid #8884}
+iframe{flex:1;border:0;width:100%}a{color:#1971c2}
+@media(prefers-color-scheme:dark){body{background:#1c1c1c;color:#ddd}a{color:#74b0f4}}</style></head>
+<body><nav><strong>Pages:</strong><a href="/datalog">Data log (charts)</a><a href="/datalog.csv">datalog.csv</a>
+<a href="/starts.csv">starts.csv</a><a href="/ui" target="_top">Web UI without the bar</a></nav>
+<iframe src="/ui" title="ESPHome web UI"></iframe></body></html>)HTML";
+
 class Handler : public esphome::web_server_idf::AsyncWebHandler {
  public:
+  explicit Handler(esphome::web_server::WebServer *ui) : ui_(ui) {}
+
   bool canHandle(esphome::web_server_idf::AsyncWebServerRequest *request) const override {
     if (request->method() != HTTP_GET) return false;
     char buf[esphome::web_server_idf::AsyncWebServerRequest::URL_BUF_SIZE];
     request->url_to(buf);
-    return !strcmp(buf, "/datalog") || !strcmp(buf, "/datalog.csv") || !strcmp(buf, "/starts.csv");
+    return !strcmp(buf, "/") || !strcmp(buf, "/ui") || !strcmp(buf, "/datalog") ||
+           !strcmp(buf, "/datalog.csv") || !strcmp(buf, "/starts.csv");
   }
 
   void handleRequest(esphome::web_server_idf::AsyncWebServerRequest *request) override {
     char ubuf[esphome::web_server_idf::AsyncWebServerRequest::URL_BUF_SIZE];
     request->url_to(ubuf);
     const char *url = ubuf;
+    if (!strcmp(url, "/")) {
+      request->send(request->beginResponse(200, "text/html", (const uint8_t *) MAIN_PAGE, sizeof(MAIN_PAGE) - 1));
+      return;
+    }
+    if (!strcmp(url, "/ui")) {
+      this->ui_->handle_index_request(request);  // the ESPHome page that "/" normally serves
+      return;
+    }
     if (!strcmp(url, "/datalog")) {
       request->send(request->beginResponse(200, "text/html", (const uint8_t *) PAGE, sizeof(PAGE) - 1));
       return;
@@ -208,6 +234,9 @@ class Handler : public esphome::web_server_idf::AsyncWebHandler {
     flush(true);
     httpd_resp_send_chunk(req, nullptr, 0);
   }
+
+ private:
+  esphome::web_server::WebServer *ui_;
 };
 
 }  // namespace datalog
