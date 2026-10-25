@@ -319,7 +319,8 @@ class Controller {
       }
       case A_REST:
         if (now - t_state_ >= DIR_SETTLE_MS) dir_on_ = false;
-        if (now - t_state_ >= rest_ms_) {
+        // The long rest after a fault is for the automatic control; manual motor stays responsive
+        if (now - t_state_ >= (p.direct ? REST_MS : rest_ms_)) {
           if (learn_lead_ && use_sensor()) {
             // Coast-down: how far the valve kept moving after the motor was switched off
             float over = (pos_ - pos_stop_) * dir_;
