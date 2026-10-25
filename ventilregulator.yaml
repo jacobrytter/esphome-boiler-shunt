@@ -429,6 +429,10 @@ interval:
                    c.temp(), c.p.sp, c.out(), c.p_term(), c.integ(), c.pos(),
                    c.sensor(), c.cfg.unit, c.end0, c.end100, c.lead(), (unsigned) c.dead_ms(),
                    c.state_text(), (unsigned) c.starts());
+      - component.update: shunt_pos_s
+      - component.update: shunt_target_s
+      - component.update: p_term_s
+      - component.update: i_term_s
 
 # ---------------------------------------------------------------- Measurements
 sensor:
@@ -453,19 +457,22 @@ sensor:
     update_interval: 10s
     web_server: {sorting_group_id: grp_overview, sorting_weight: 44}
 
+  # Process values are published together right after the controller tick (10 s interval),
+  # so they come from the same moment as the temperatures and can be compared directly
   - platform: template
+    id: shunt_pos_s
     name: "Shunt position"
     unit_of_measurement: "%"
     accuracy_decimals: 0
-    update_interval: 2s
+    update_interval: never
     lambda: return shunt::ctl.pos();
-    filters: [delta: 0.5]   # publish only on change; quiet when the valve is still
     web_server: {sorting_group_id: grp_overview, sorting_weight: 50}
   - platform: template
+    id: shunt_target_s
     name: "Shunt target"
     unit_of_measurement: "%"
     accuracy_decimals: 0
-    update_interval: 10s
+    update_interval: never
     lambda: return shunt::ctl.out();
     web_server: {sorting_group_id: grp_overview, sorting_weight: 60}
   - platform: template
@@ -535,18 +542,20 @@ sensor:
     lambda: return shunt::ctl.end100;
     web_server: {sorting_group_id: grp_possensor, sorting_weight: 30}
   - platform: template
+    id: p_term_s
     name: "Controller P term"
     unit_of_measurement: "%"
     accuracy_decimals: 1
-    update_interval: 10s
+    update_interval: never
     entity_category: diagnostic
     lambda: return shunt::ctl.p_term();
     web_server: {sorting_group_id: grp_controller, sorting_weight: 30}
   - platform: template
+    id: i_term_s
     name: "Controller I term"
     unit_of_measurement: "%"
     accuracy_decimals: 1
-    update_interval: 10s
+    update_interval: never
     entity_category: diagnostic
     lambda: return shunt::ctl.integ();
     web_server: {sorting_group_id: grp_controller, sorting_weight: 40}
