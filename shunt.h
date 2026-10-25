@@ -63,6 +63,10 @@ constexpr float    ENDPOINT_OVERRUN = 0.25f; // extra run towards an end stop (f
 constexpr float    STOP_LEAD        = 0.5f;  // initial coast-down, %; learned continuously
 constexpr float    MAX_LEAD         = 5.0f;  // largest coast-down accepted as learned
 constexpr float    REVERSE_FACTOR   = 1.5f;  // step controller: a reversal needs 1.5 x the deadband
+constexpr float    MAX_JUMP_C       = 5.0f;  // larger temperature change in one tick must be confirmed
+constexpr float    WRONG_WAY_PCT    = 3.0f;  // moving this far against the command = wrong direction
+constexpr float    END_TOL_PCT      = 10.0f; // an end stop must be within this of the calibrated one
+constexpr uint32_t FAULT_RETRY_MS   = 60000; // rest after a valve fault before the next try
 constexpr int      SENSOR_MAX_MISS  = 5;     // missing readings in a row before the sensor counts as gone
 constexpr uint32_t CAL_MAX_MS       = 120000;
 constexpr uint32_t BOOT_WAIT_MS     = 2000;  // wait for the position sensor before the first move
@@ -112,9 +116,21 @@ class Controller {
   // Controller - called every dt_s seconds with the latest temperature (NAN = no reading)
   void tick(float temp, float dt_s) {
     bool ok = !std::isnan(temp) && temp > -50.0f && temp < 125.0f &&
-              // 85.0 is the DS18B20 power-on value; reject it when it appears out of the blue
-              !(temp == 85.0f && (std::isnan(temp_) || std::fabs(temp_ - 85.0f) > 5.0f));
+              // 85.0 is the DS18B20 power-on value, and 0.0 is what an all-zero read gives
+              // (its CRC is valid) when the bus is disturbed; reject them out of the blue
+              !(temp == 85.0f && (std::isnan(temp_) || std::fabs(temp_ - 85.0f) > 5.0f)) &&
+              !(temp == 0.0f && (std::isnan(temp_) || std::fabs(temp_) > 5.0f));
+    if (ok && !std::isnan(temp_) && std::fabs(temp - temp_) > MAX_JUMP_C) {
+      // A big jump in one tick: accept it only when the next reading confirms it
+      bool confirmed = !std::isnan(jump_) && std::fabs(temp - jump_) <= MAX_JUMP_C;
+      if (!confirmed) {
+        log_event("Temperature jump %.2f -> %.2f °C ignored until confirmed", temp_, temp);
+        jump_ = temp;
+        ok = false;
+      }
+    }
     if (ok) {
+      jump_ = NAN;
       if (sensor_fault_) log_event("Temperature sensor OK again: %.2f °C", temp);
       temp_ = temp;
       bad_reads_ = 0;
@@ -257,8 +273,16 @@ class Controller {
         bool timeout = elapsed >= max_ms_;
         bool stop = false;
         const char* why = "";
+        // Turning the wrong way (lost direction signal, swapped wires): stop at once
+        bool wrong_way = use_sensor() && (pos_ - move_start_pos_) * dir_ < -WRONG_WAY_PCT;
 
-        if (mode_ == RM_END) {
+        if (wrong_way) {
+          stop = true;
+          valve_fault_ = true;
+          why = "VALVE FAULT: turning the wrong way (direction signal?)";
+          if (mode_ == RM_JOG) p.jog_on = false;
+          if (cal_ != CAL_NONE) { cal_ = CAL_NONE; cal_msg_ = "Calibration failed: valve turned the wrong way"; }
+        } else if (mode_ == RM_END) {
           stop = stalled || timeout;
           why = stalled ? "end stop (not moving)" : "time elapsed";
         } else if (mode_ == RM_JOG) {
@@ -285,7 +309,9 @@ class Controller {
                     (unsigned) elapsed, why, pos_, sensor_, cfg.unit);
           pos_stop_ = pos_;
           learn_lead_ = mode_ == RM_TARGET && use_sensor() && !valve_fault_;
-          if (mode_ == RM_END) finish_end_move(stalled);
+          if (mode_ == RM_END && !wrong_way) finish_end_move(stalled);
+          // After a fault, wait before trying again instead of starting the motor every few seconds
+          rest_ms_ = valve_fault_ ? FAULT_RETRY_MS : REST_MS;
           state_ = A_REST;
           t_state_ = now;
         }
@@ -293,7 +319,7 @@ class Controller {
       }
       case A_REST:
         if (now - t_state_ >= DIR_SETTLE_MS) dir_on_ = false;
-        if (now - t_state_ >= REST_MS) {
+        if (now - t_state_ >= rest_ms_) {
           if (learn_lead_ && use_sensor()) {
             // Coast-down: how far the valve kept moving after the motor was switched off
             float over = (pos_ - pos_stop_) * dir_;
@@ -402,7 +428,19 @@ class Controller {
 
   void finish_end_move(bool stalled) {
     bool opening = dir_ > 0;
+    if (stalled && cal_ == CAL_NONE && sensor_calibrated()) {
+      // In operation an end stop must be where calibration found it. Stopping elsewhere
+      // means the valve is blocked or turned the wrong way: do not learn it
+      float at = delta(sensor_, end0) / delta(end100, end0) * 100.0f;
+      if (opening ? at < 100.0f - END_TOL_PCT : at > END_TOL_PCT) {
+        valve_fault_ = true;
+        log_event("VALVE FAULT: end stop found at %.1f %% instead of %s - not learned", at,
+                  opening ? "100 %" : "0 %");
+        stalled = false;
+      }
+    }
     if (stalled) {
+      if (cal_ == CAL_NONE) valve_fault_ = false;  // the end stop is where it should be
       // Learn the sensor end point; store only on a noticeable change (saves flash wear)
       float& e = opening ? end100 : end0;
       if (std::isnan(e) || std::fabs(delta(e, sensor_)) > cfg.learn_delta || cal_ != CAL_NONE) {
@@ -413,7 +451,7 @@ class Controller {
       if (cal_ == CAL_CLOSE) {
         // The closing run goes the full way, so it gives the travel time
         new_travel = std::max(2.0f, (t_last_move_ - t_state_) / 1000.0f);
-        cal_msg_ = "Calibration OK";
+        cal_msg_ = sensor_calibrated() ? "Calibration OK" : "Calibration failed: too little travel measured";
         log_event("Calibration OK: travel time %.2f s, 0 %% = %.1f %s, 100 %% = %.1f %s",
                   new_travel, end0, cfg.unit, end100, cfg.unit);
       }
@@ -438,6 +476,8 @@ class Controller {
   int bad_reads_ = 0;
   bool sensor_fault_ = false;
   float p_term_ = 0, integ_ = 0, out_ = 0;
+  float jump_ = NAN;        // a big temperature jump waiting for confirmation
+  uint32_t rest_ms_ = REST_MS;
   float acc_ = 0;           // step controller: wanted change of the valve position, %
   float e_prev_ = NAN;      // previous control error, for the P part of the step
   bool homing_ = false;     // start-up without position: closing to the end stop first
