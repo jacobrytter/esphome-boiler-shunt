@@ -62,6 +62,7 @@ constexpr uint32_t REST_MS          = 1000;  // rest between two motor pulses
 constexpr float    ENDPOINT_OVERRUN = 0.25f; // extra run towards an end stop (fraction of travel time)
 constexpr float    STOP_LEAD        = 0.5f;  // initial coast-down, %; learned continuously
 constexpr float    MAX_LEAD         = 5.0f;  // largest coast-down accepted as learned
+constexpr float    REVERSE_FACTOR   = 1.5f;  // step controller: a reversal needs 1.5 x the deadband
 constexpr int      SENSOR_MAX_MISS  = 5;     // missing readings in a row before the sensor counts as gone
 constexpr uint32_t CAL_MAX_MS       = 120000;
 constexpr uint32_t BOOT_WAIT_MS     = 2000;  // wait for the position sensor before the first move
@@ -123,30 +124,29 @@ class Controller {
       log_event("SENSOR FAULT: no valid temperature 3 times in a row");
     }
 
-    if (was_manual_ && !p.manual && !std::isnan(temp_)) {
-      // Bumpless transfer from manual to auto
-      p_term_ = p.kp * (p.sp - temp_);
-      integ_ = clampf(out_ - p_term_, 0.0f, 100.0f);
-    }
-    was_manual_ = p.manual;
-
-    if (p.manual || !init_) return;
-    if (sensor_fault_) {
-      // Close the shunt; the controller resumes from closed when the sensor is back
-      if (!p.fault_hold_position) out_ = target_ = integ_ = 0.0f;
+    // Step controller (incremental PI): every tick adds the wanted change of the valve
+    // position to acc_. The motor control runs the valve when acc_ reaches the deadband and
+    // then subtracts the movement actually measured, so a move that goes too far is not
+    // corrected by itself - only if the temperature asks for it.
+    if (p.manual || !init_ || sensor_fault_ || std::isnan(temp_)) {
+      // Start again without a kick when the controller takes over
+      acc_ = 0;
+      e_prev_ = NAN;
+      if (sensor_fault_ && !p.manual && init_ && !p.fault_hold_position) {
+        out_ = target_ = 0.0f;  // close the shunt (position mode, see step_mode())
+      }
       return;
     }
-    if (std::isnan(temp_)) return;  // no reading yet after boot: hold
 
     float e = p.sp - temp_;  // too cold -> positive -> open the shunt more
     p_term_ = p.kp * e;
-    float di = p.kp * dt_s / p.ti * e;
-    float u = p_term_ + integ_ + di;
-    // Anti-windup: stop integrating while the output is saturated in the same direction
-    if (!((u > 100.0f && di > 0) || (u < 0.0f && di < 0))) integ_ += di;
-    integ_ = clampf(integ_, 0.0f, 100.0f);
-    out_ = clampf(p_term_ + integ_, 0.0f, 100.0f);
-    target_ = out_;
+    if (std::isnan(e_prev_)) e_prev_ = e;
+    float d = p.kp * (e - e_prev_) + p.kp * dt_s / p.ti * e;
+    e_prev_ = e;
+    // The valve cannot go beyond its ends; this is also the anti-windup
+    acc_ = clampf(acc_ + d, -pos_, 100.0f - pos_);
+    out_ = target_ = clampf(pos_ + acc_, 0.0f, 100.0f);
+    integ_ = out_ - p_term_;  // for display only: the part of the output not explained by P
   }
 
   // Motor control - called often (every 20 ms)
@@ -160,11 +160,13 @@ class Controller {
         // Restart: continue from the current position
         pos_ = sensor_pos();
         out_ = integ_ = target_ = pos_;
+        acc_ = 0;
         log_event("Start-up: position sensor OK (%.1f %s), continuing from %.1f %%", sensor_, cfg.unit, pos_);
       } else {
         // Position unknown: close the shunt fully (safe: the boiler can always get rid of its heat)
         pos_ = 100.0f;
         out_ = integ_ = target_ = 0.0f;
+        homing_ = true;  // position mode until the end stop is reached
         log_event("Start-up: position sensor %s (%.1f %s) - closing the shunt fully",
                   sensor_connected() ? "not calibrated" : "not connected", sensor_, cfg.unit);
       }
@@ -183,7 +185,32 @@ class Controller {
                        (uint32_t)(p.travel * 1000.0f * 1.5f) + 2000, now);
           break;
         }
+        if (step_mode()) {
+          // Step controller: run when the accumulated demand reaches the deadband; a
+          // reversal needs a bit more, so noise does not make the valve go back and forth
+          acc_ = clampf(acc_, -pos_, 100.0f - pos_);
+          out_ = target_ = clampf(pos_ + acc_, 0.0f, 100.0f);
+          int dir = acc_ > 0 ? 1 : -1;
+          float need = p.db * (last_dir_ == 0 || dir == last_dir_ ? 1.0f : REVERSE_FACTOR);
+          if (std::fabs(acc_) < need) break;
+          float t = pos_ + acc_;
+          float ms = std::fabs(acc_) / 100.0f * p.travel * 1000.0f;
+          step_move_ = true;
+          if (t <= 0.5f || t >= 99.5f) {
+            t = t <= 0.5f ? 0.0f : 100.0f;
+            if (std::fabs(t - pos_) < (use_sensor() ? 1.5f : 0.01f)) { step_move_ = false; acc_ = 0; break; }
+            start_move(dir, RM_END, t, (uint32_t)(ms + ENDPOINT_OVERRUN * p.travel * 1000.0f), now);
+          } else if (use_sensor()) {
+            start_move(dir, RM_TARGET, t, (uint32_t)(ms * 1.5f + 3000 + dead_ms_), now);
+          } else if (ms >= MIN_PULSE_MS) {
+            start_move(dir, RM_TARGET, t, (uint32_t)(ms + dead_ms_), now);
+          } else {
+            step_move_ = false;  // too short to run without a position sensor: keep accumulating
+          }
+          break;
+        }
 
+        // Position mode (manual position, fault, homing): run to target_ and correct misses
         float t = target_;
         bool end = false;
         if (t <= 0.5f)       { t = 0.0f;   end = true; }
@@ -276,6 +303,15 @@ class Controller {
                       over, lead_, (unsigned) dead_ms_, pos_);
           }
           learn_lead_ = false;
+          if (step_move_) {
+            // Subtract the movement actually made, coast-down included; what is left over
+            // (too short or too far) stays in acc_ for the controller to decide on
+            float moved = pos_ - move_start_pos_;
+            acc_ = clampf(acc_ - moved, -pos_, 100.0f - pos_);
+            last_dir_ = dir_;
+            step_move_ = false;
+            log_event("Step done: moved %+.1f %%, demand left %+.1f %%", moved, acc_);
+          }
           state_ = A_IDLE;
         }
         break;
@@ -333,6 +369,12 @@ class Controller {
     return d;
   }
 
+  // Auto control runs the step controller; manual position, a temperature sensor fault that
+  // closes the shunt, and homing after start-up run to a fixed position instead
+  bool step_mode() const {
+    return !p.manual && !homing_ && !(sensor_fault_ && !p.fault_hold_position);
+  }
+
   float sensor_pos() const { return clampf(delta(sensor_, end0) / delta(end100, end0) * 100.0f, 0.0f, 100.0f); }
 
   void log_event(const char* fmt, ...) {
@@ -350,6 +392,7 @@ class Controller {
               pos_, run_target, (unsigned) max_ms);
     dir_ = dir;
     mode_ = mode;
+    move_start_pos_ = pos_;
     run_target_ = run_target;
     max_ms_ = max_ms;
     dir_on_ = (dir > 0) != p.invert_dir;
@@ -376,6 +419,7 @@ class Controller {
       }
     }
     if (!use_sensor()) pos_ = opening ? 100.0f : 0.0f;
+    if (cal_ == CAL_NONE) homing_ = false;
 
     if (cal_ == CAL_OPEN) {
       cal_ = stalled ? CAL_CLOSE : CAL_NONE;
@@ -393,8 +437,13 @@ class Controller {
   float temp_ = NAN;
   int bad_reads_ = 0;
   bool sensor_fault_ = false;
-  bool was_manual_ = false;
   float p_term_ = 0, integ_ = 0, out_ = 0;
+  float acc_ = 0;           // step controller: wanted change of the valve position, %
+  float e_prev_ = NAN;      // previous control error, for the P part of the step
+  bool homing_ = false;     // start-up without position: closing to the end stop first
+  bool step_move_ = false;  // the current move was started by the step controller
+  float move_start_pos_ = 0;
+  int last_dir_ = 0;        // direction of the last step move
 
   // Actuator
   bool init_ = false, boot_started_ = false;

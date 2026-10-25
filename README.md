@@ -258,7 +258,7 @@ WebUI'en viser enhederne i grupper: **Overview**, **Valve**, **Position sensor**
 | Valve motor | Tænder motoren i den valgte retning. Skifter selv *Mode* til *Manual motor*. Slukker selv ved endestop og efter 1,5 × gangtiden. Skift af retning undervejs stopper motoren og starter den i den nye retning. |
 | Valve calibrate | Kører helt åben og derefter helt lukket, lærer stillingsfølerens endepunkter og måler gangtiden. Slutter med shunten lukket. |
 | Valve travel time 0-100 % | Måles automatisk af kalibreringen |
-| Valve deadband | Mindste stillingsændring, før motoren kører (standard 2 %) |
+| Valve deadband | I Auto: hvor meget regulatoren skal have ophobet, før motoren kører (standard 3 %, svarende til ventilens mindste skridt). Et retningsskift kræver 1,5 × dødbåndet. I *Manual position*: tolerancen på stillingen. |
 | Controller Kp, Controller Ti | Regulatorparametre (se nedenfor) |
 
 Alle indstillinger gemmes i flash. *Manual motor* gemmes ikke: efter en genstart står *Mode* på Auto.
