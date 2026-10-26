@@ -42,7 +42,7 @@ Lineært: **−14,7 tællinger pr. mV**, og **0 mV svarer til ADC 512** (midten 
 4. Er der **parametre for Modul 2 I/O 1** (offset, skalering, sondetype), der skal sættes efter sondeskift?
 5. Hvad betyder **"Fuel: PARAM ERR"**, og hvordan rettes det?
 6. Kan vi få **servicemanual / parameterliste** til PCT400 ver. 1.0.4309 (KSM-versionen)?
-7. Anbefaling indtil sonden virker: er **Menu / Drift / Stokersnegl / Manual = JA** (kørsel uden lambdasonde, røgtemperaturen styrer opstart/drift) den rigtige løsning på Tuxedo F-Auto?
+7. Pricatechs **Menu / Drift / Stokersnegl / Manual = JA** (kørsel uden lambdasonde) **findes ikke i KSM's menu** (tjekket 2026-10-26). Hvordan kører man uden iltsonde på KSM-versionen? Indtil videre bruges en forskydningsspænding (batteri + spændingsdeler) i serie med sondens signal.
 8. Hvilke **iltsætpunkter** anbefales til flis (manualen for P-Line: 8 % ved 100 %, 14 % ved 0 % ydelse)?
 
 ## Fundet i dokumentation og fora
