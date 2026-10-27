@@ -26,6 +26,10 @@ Udarbejdet 2026-10-26. KSM-Stoker A/S, Karby: tlf. **97 76 10 72**, mail **mail@
 
 5. **Test hos naboen (2026-10-27):** den ny sonde viser 21 % i fri luft på naboens styring (firmware 1.0.5501), men ved ADC 113 i stedet for vores 412. Se [ksm-oxygen-sensor-neighbour.md](ksm-oxygen-sensor-neighbour.md).
 
+6. **Drift (2026-10-26/27):** kun simulatoren er tilsluttet (sonden er taget af). Spændingen er målt i stikket ca. 20 cm fra sonden, samme metode hele tiden. Den viste ilt falder gradvist ved uændret indgangsspænding: to gange på et døgn er den faldet til 8–9 %, og spændingen har måttet skrues op for at holde ca. 12 %. Ellers stopper fødningen, og falsk luft gennem sneglen giver risiko for tilbagebrænding. **Fyret er stoppet og slukket 2026-10-27.**
+   - 2026-10-26: 21 % ved 13,7 mV (efter kalibrering). 2026-10-27: 12,3 % ved 13,0 mV og ADC ≈ 498 − 15,2 · U. Hældningen (tællinger pr. mV) er næsten uændret, mens nulpunktet flytter sig. Det tyder på **drift i offset** (forskydning) i indgangstrinnet mere end i forstærkningen.
+7. **Samtale med Jens, KSM (teknik), 2026-10-27:** sonden giver ca. ±10 mV. Han mistænker **iltforstærkeren** og foreslår at skifte hovedprintet.
+
 ## Rå ADC-værdier (Modul 2 I/O 1)
 
 | Spænding grå mod sort | ADC |
