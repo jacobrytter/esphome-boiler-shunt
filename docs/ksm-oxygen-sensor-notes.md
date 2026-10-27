@@ -27,11 +27,56 @@ Udarbejdet 2026-10-26. KSM-Stoker A/S, Karby: tlf. **97 76 10 72**, mail **mail@
 5. **Test hos naboen (2026-10-27):** den ny sonde viser 21 % i fri luft på naboens styring (firmware 1.0.5501), men ved ADC 113 i stedet for vores 412. Se [ksm-oxygen-sensor-neighbour.md](ksm-oxygen-sensor-neighbour.md).
 
 6. **Drift (2026-10-26/27):** kun simulatoren er tilsluttet (sonden er taget af). Spændingen er målt i stikket ca. 20 cm fra sonden, samme metode hele tiden. Den viste ilt falder gradvist ved uændret indgangsspænding: to gange på et døgn er den faldet til 8–9 %, og spændingen har måttet skrues op for at holde ca. 12 %. Ellers stopper fødningen, og falsk luft gennem sneglen giver risiko for tilbagebrænding. **Fyret er stoppet og slukket 2026-10-27.**
-   - 2026-10-26: 21 % ved 13,7 mV (efter kalibrering). 2026-10-27: 12,3 % ved 13,0 mV og ADC ≈ 498 − 15,2 · U. Hældningen (tællinger pr. mV) er næsten uændret, mens nulpunktet flytter sig. Det tyder på **drift i offset** (forskydning) i indgangstrinnet mere end i forstærkningen.
-   - 2026-10-27 aften: **12,9 mV → ADC 427 → 7,10 %**, mod 13,0 mV → ADC 301 → 12,34 % dagen før. Det er et skift på ca. 126 tællinger (ca. 8 mV) ved næsten samme indgangsspænding fra simulatoren. Omregningen fra ADC til ilt er uændret (20,9 % · exp(−(ADC − 180)/230) giver 7,1 %), så **fejlen ligger i den analoge indgang før ADC'en**, ikke i softwaren eller kalibreringen.
+   - Måleserie med simulatoren (*Ilt / Test*), før besøget hos naboen:
+
+     | Simulator | ADC | Vist ilt |
+     |---|---|---|
+     | 11,2 mV | 324 | – |
+     | 11,9 mV | 315 | – |
+     | 13,0 mV | 301 | 12,34 % |
+     | 10,4 mV | 340 | 10,52 % |
+     | 6,9 mV | 394 | 8,28 % |
+     | 5,1 mV | 421 | 7,32 % |
+     | 10,5 mV | 343 | 10,41 % |
+
+     Lineært: ADC ≈ 498 − 15,2 · U. Visningen følger 20,9 % · exp(−(ADC − 180)/230) inden for 0,15 procentpoint, dvs. en Nernst-formet kurve med ca. 15 mV pr. e-fold og 20,9 % ved ca. 21 mV.
+   - Senere samme aften (efter besøget hos naboen): **12,9 mV → ADC 427 → 7,10 %**. Skiftet fra 13,0 mV → ADC 301 er ca. 126 tællinger (ca. 8 mV) ved næsten samme indgangsspænding fra simulatoren. Omregningen fra ADC til ilt er uændret (20,9 % · exp(−(ADC − 180)/230) giver 7,1 %), så **fejlen ligger i den analoge indgang før ADC'en**, ikke i softwaren eller kalibreringen.
    - I/O-printet (modul 2, med iltindgangen på klemme 21–24) har PIC18F25K80 og to ST LM324 operationsforstærkere ved de analoge indgange. LM324 har typisk 2 mV offset (højst 7 mV) og ca. 7 µV/°C drift, så 8 mV på et døgn er en fejl og ikke normal drift. Mistanke: komponentfejl, lækstrøm (støv/fugt) eller en defekt LM324.
    - Lånt print fra naboen: Rev. E, 07-01-2013.
 7. **Samtale med Jens, KSM (teknik), 2026-10-27:** sonden giver ca. ±10 mV. Han mistænker **iltforstærkeren** og foreslår at skifte hovedprintet.
+
+## I/O-printet (modul 2) – forsøgsvis blokdiagram
+
+Ud fra fotos af komponentsiden (lånt print Rev. E, 07-01-2013, og det gamle print). Banerne er ikke fulgt, så diagrammet er en kvalificeret gætning ud fra komponenterne og de målte tal.
+
+```
+ Klemme 21-24 (sonde)                     Analog del (2 x LM324)                       PIC18F25K80
+ ┌──────────────┐     ┌────────────┐   ┌──────────────────────┐   ┌──────────┐      ┌──────────────────┐
+ │ 21 grå  (+)  ├──R──┤ beskyttelse├───┤ differensforstærker  ├───┤ RC-filter├──────┤ AN-indgang (ADC) │
+ │ 23 sort (−)  ├──R──┤ + RC-filter├───┤ forstærkning ca. 50-70│   └──────────┘      │                  │
+ │ 22/24 hvid   │     └────────────┘   │ inverterende         │                     │ ECAN-controller  │
+ │ = varme 13 V~│                      │ + bias Vref/2        │◄── Vref/2 (deler/   │ (indbygget)      │
+ └──────────────┘                      └──────────────────────┘     buffer)         └────────┬─────────┘
+       ▲                                                                                     │ CANTX/CANRX
+       └── stor modstand til bias ("brudt sonde"-detektering, giver 5,6 mV uden sonde)       ▼
+                                                                                    ┌──────────────────┐
+                                                                                    │ CAN-transceiver  │
+                                                                                    │ (SO-8 ved RJ45)  │
+                                                                                    └────────┬─────────┘
+                                                                                             │ RJ45 + 4-polet stik
+                                                                                             ▼
+                                                                          Display/CPU (PIC32MX575F512H)
+                                                                          omregner ADC → ilt % og regulerer
+```
+
+Hvad tallene siger om forstærkeren:
+- ADC 512 ved 0 mV = midten af 10-bit-området, altså bias på Vref/2, så indgangen kan måle både positive og negative spændinger.
+- −14,7 til −15,2 tællinger pr. mV. Med en ADC-reference på 5 V (4,88 mV/tælling) er forstærkningen ca. 72, og med 3,3 V ca. 48. Fortegnet er vendt (inverterende eller ombyttede indgange).
+- 8 mV forskydning ved indgangen svarer til ca. 0,4–0,6 V på forstærkerens udgang.
+
+Kandidater til drift i offset: referencen Vref/2 (vil også flytte de andre analoge indgange, fx kedeltemperaturen), en modstand eller kondensator i forstærker eller filter, der ændrer sig eller lækker, en defekt LM324, eller lækstrøm fra støv/fugt ved indgangen.
+
+Øvrige komponenter: 5-polet stiftliste mærket "P+T" (sandsynligvis ICSP-programmering af PIC'en), triac-udgange med MOC3043 (230 V, nulgennemgang), optokoblere (TLP181-type) til digitale indgange, sikringer T250 mA, to små switch-mode forsyninger (22 µH-spoler).
 
 ## Rå ADC-værdier (Modul 2 I/O 1)
 
