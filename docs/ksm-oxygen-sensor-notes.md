@@ -46,7 +46,7 @@ Lineært: **−14,7 tællinger pr. mV**, og **0 mV svarer til ADC 512** (midten 
 2. **Hvor stor afvigelse accepterer *Kalibrere O2***? Afvises 6,8 mV / ADC 412 i fri luft som "for stor afvigelse"?
 3. Er **6–8 mV i fri luft normalt** for NGK OZA685-WW1 / LSM 11-typen på PCT400? (Begge sonder giver det.) Kan det skyldes stel/jord, eller at sonden skal hænge **uden at røre metal** under kalibrering (står i Pricatechs vejledning)?
 4. Er der **parametre for Modul 2 I/O 1** (offset, skalering, sondetype), der skal sættes efter sondeskift?
-5. Hvad betyder **"Fuel: PARAM ERR"**, og hvordan rettes det?
+5. Hvad betyder **"Fuel: PARAM ERR"**, og hvordan rettes det? *(KSM vidste det ikke, 2026-10-27. Det er sandsynligvis brændselstælleren, som mangler afvejningen under Menu / Tilbehør / Transportsnegl (Afvejet mængde g., Køretid s.); se KSM-manualens afsnit 6.4.1 og 14.4. Den har intet med iltmålingen at gøre.)*
 6. Kan vi få **servicemanual / parameterliste** til PCT400 ver. 1.0.4309 (KSM-versionen)?
 7. Pricatechs **Menu / Drift / Stokersnegl / Manual = JA** (kørsel uden lambdasonde) **findes ikke i KSM's menu** (tjekket 2026-10-26). Hvordan kører man uden iltsonde på KSM-versionen? Indtil videre bruges en forskydningsspænding (batteri + spændingsdeler) i serie med sondens signal.
 8. Hvilke **iltsætpunkter** anbefales til flis (manualen for P-Line: 8 % ved 100 %, 14 % ved 0 % ydelse)?
