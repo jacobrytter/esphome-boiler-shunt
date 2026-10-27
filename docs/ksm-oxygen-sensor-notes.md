@@ -28,6 +28,9 @@ Udarbejdet 2026-10-26. KSM-Stoker A/S, Karby: tlf. **97 76 10 72**, mail **mail@
 
 6. **Drift (2026-10-26/27):** kun simulatoren er tilsluttet (sonden er taget af). Spændingen er målt i stikket ca. 20 cm fra sonden, samme metode hele tiden. Den viste ilt falder gradvist ved uændret indgangsspænding: to gange på et døgn er den faldet til 8–9 %, og spændingen har måttet skrues op for at holde ca. 12 %. Ellers stopper fødningen, og falsk luft gennem sneglen giver risiko for tilbagebrænding. **Fyret er stoppet og slukket 2026-10-27.**
    - 2026-10-26: 21 % ved 13,7 mV (efter kalibrering). 2026-10-27: 12,3 % ved 13,0 mV og ADC ≈ 498 − 15,2 · U. Hældningen (tællinger pr. mV) er næsten uændret, mens nulpunktet flytter sig. Det tyder på **drift i offset** (forskydning) i indgangstrinnet mere end i forstærkningen.
+   - 2026-10-27 aften: **12,9 mV → ADC 427 → 7,10 %**, mod 13,0 mV → ADC 301 → 12,34 % dagen før. Det er et skift på ca. 126 tællinger (ca. 8 mV) ved næsten samme indgangsspænding fra simulatoren. Omregningen fra ADC til ilt er uændret (20,9 % · exp(−(ADC − 180)/230) giver 7,1 %), så **fejlen ligger i den analoge indgang før ADC'en**, ikke i softwaren eller kalibreringen.
+   - I/O-printet (modul 2, med iltindgangen på klemme 21–24) har PIC18F25K80 og to ST LM324 operationsforstærkere ved de analoge indgange. LM324 har typisk 2 mV offset (højst 7 mV) og ca. 7 µV/°C drift, så 8 mV på et døgn er en fejl og ikke normal drift. Mistanke: komponentfejl, lækstrøm (støv/fugt) eller en defekt LM324.
+   - Lånt print fra naboen: Rev. E, 07-01-2013.
 7. **Samtale med Jens, KSM (teknik), 2026-10-27:** sonden giver ca. ±10 mV. Han mistænker **iltforstærkeren** og foreslår at skifte hovedprintet.
 
 ## Rå ADC-værdier (Modul 2 I/O 1)
