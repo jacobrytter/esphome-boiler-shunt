@@ -45,44 +45,9 @@ Udarbejdet 2026-10-26. KSM-Stoker A/S, Karby: tlf. **97 76 10 72**, mail **mail@
    - Lånt print fra naboen: Rev. E, 07-01-2013.
 7. **Samtale med Jens, KSM (teknik), 2026-10-27:** sonden giver ca. ±10 mV. Han mistænker **iltforstærkeren** og foreslår at skifte hovedprintet.
 
-## I/O-printet (modul 2) – forsøgsvis blokdiagram
+## I/O-printet (modul 2)
 
-Ud fra fotos af komponentsiden (lånt print Rev. E, 07-01-2013, og det gamle print). Banerne er ikke fulgt, så diagrammet er en kvalificeret gætning ud fra komponenterne og de målte tal.
-
-```
- Klemme 21-24 (sonde)                     Analog del (2 x LM324)                       PIC18F25K80
- ┌──────────────┐     ┌────────────┐   ┌──────────────────────┐   ┌──────────┐      ┌──────────────────┐
- │ 21 grå  (+)  ├──R──┤ beskyttelse├───┤ differensforstærker  ├───┤ RC-filter├──────┤ AN-indgang (ADC) │
- │ 23 sort (−)  ├──R──┤ + RC-filter├───┤ forstærkning ca. 50-70│   └──────────┘      │                  │
- │ 22/24 hvid   │     └────────────┘   │ inverterende         │                     │ ECAN-controller  │
- │ = varme 13 V~│                      │ + bias Vref/2        │◄── Vref/2 (deler/   │ (indbygget)      │
- └──────────────┘                      └──────────────────────┘     buffer)         └────────┬─────────┘
-       ▲                                                                                     │ CANTX/CANRX
-       └── stor modstand til bias ("brudt sonde"-detektering, giver 5,6 mV uden sonde)       ▼
-                                                                                    ┌──────────────────┐
-                                                                                    │ CAN-transceiver  │
-                                                                                    │ (SO-8 ved RJ45)  │
-                                                                                    └────────┬─────────┘
-                                                                                             │ RJ45 + 4-polet stik
-                                                                                             ▼
-                                                                          Display/CPU (PIC32MX575F512H)
-                                                                          omregner ADC → ilt % og regulerer
-```
-
-Hvad tallene siger om forstærkeren:
-- ADC 512 ved 0 mV = midten af 10-bit-området, altså bias på Vref/2, så indgangen kan måle både positive og negative spændinger.
-- −14,7 til −15,2 tællinger pr. mV. Med en ADC-reference på 5 V (4,88 mV/tælling) er forstærkningen ca. 72, og med 3,3 V ca. 48. Fortegnet er vendt (inverterende eller ombyttede indgange).
-- 8 mV forskydning ved indgangen svarer til ca. 0,4–0,6 V på forstærkerens udgang.
-
-Aflæste modstandskoder (lånt print, EIA-96 og 3-cifret): ved det højre LM324 (nærmest klemme 21–24) ca. 6 × `01D` = 100 kΩ, 5 × `222` = 2,2 kΩ og `45B` = 2,80 kΩ. Ved det venstre LM324: `05B` = 1,10 kΩ (flere), `01C` = 10 kΩ, `472` = 4,7 kΩ, `223` = 22 kΩ, `124` = 120 kΩ og `05E` = 1,10 MΩ.
-- 100 kΩ / 2,2 kΩ giver en forstærkning på ca. 45–46. Med en 10-bit ADC og en reference på ca. 3,0–3,3 V giver det 14–15,5 tællinger pr. mV, hvilket passer med de målte −14,7 til −15,2. Det højre LM324 er derfor sandsynligvis mV-forstærkeren til iltsonden.
-- 1,1 MΩ fra forsyningen ind i en indgang med ca. 2 kΩ til stel giver ca. 6 mV. Det passer med de 5,6 mV, der er målt på indgangen uden sonde ("brudt sonde"-detektering). Den sidder dog ved det venstre LM324, så det er ikke afgjort.
-- Banerne fra klemme 21–24 går ikke på bagsiden (der er ingen spor ved de fire ben), så de løber på komponentsiden, delvis skjult af spolerne og fotograferet skråt.
-- Kedeltemperaturen passer stadig (PCT400 55,8 °C mod vores DS18B20 55,1 °C, 2026-10-27). ADC-referencen og forsyningen er derfor sandsynligvis i orden, og fejlen ligger i selve mV-forstærkeren.
-
-Kandidater til drift i offset: referencen Vref/2 (vil også flytte de andre analoge indgange, fx kedeltemperaturen), en modstand eller kondensator i forstærker eller filter, der ændrer sig eller lækker, en defekt LM324, eller lækstrøm fra støv/fugt ved indgangen.
-
-Øvrige komponenter: 5-polet stiftliste mærket "P+T" (sandsynligvis ICSP-programmering af PIC'en), triac-udgange med MOC3043 (230 V, nulgennemgang), optokoblere (TLP181-type) til digitale indgange, sikringer T250 mA, to små switch-mode forsyninger (22 µH-spoler).
+Virkemåde, komponenter, forsøgsvis diagram, fejlsøgningsinstrukser og billeder: se [pct400-io-board.md](pct400-io-board.md).
 
 ## Rå ADC-værdier (Modul 2 I/O 1)
 
