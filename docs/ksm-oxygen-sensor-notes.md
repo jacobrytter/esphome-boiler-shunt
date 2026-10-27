@@ -24,6 +24,8 @@ Udarbejdet 2026-10-26. KSM-Stoker A/S, Karby: tlf. **97 76 10 72**, mail **mail@
    - Styringens indgang uden sonde: **5,6 mV**. Vekselspænding på signalet: **< 0,1 mV AC**.
 4. **Kalibrering virker ikke** med den ny sonde. Displayet viser **7,64 % i fri luft** og **0 % ved kraftig røg**. CAL-linjen står uændret på 100,100,100,100,100,100.
 
+5. **Test hos naboen (2026-10-27):** den ny sonde viser 21 % i fri luft på naboens styring (firmware 1.0.5501), men ved ADC 113 i stedet for vores 412. Se [ksm-oxygen-sensor-neighbour.md](ksm-oxygen-sensor-neighbour.md).
+
 ## Rå ADC-værdier (Modul 2 I/O 1)
 
 | Spænding grå mod sort | ADC |
