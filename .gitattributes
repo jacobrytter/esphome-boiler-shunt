@@ -1,2 +1,18 @@
-# Keep LF line endings on every PC
+# Line endings: the same on every PC, whatever core.autocrlf is set to there.
+# Text files are LF in the repo and in the working folder ...
 * text=auto eol=lf
+# ... except formats that Windows tools expect with CRLF
+*.bat  eol=crlf
+*.cmd  eol=crlf
+*.ps1  eol=crlf
+*.psm1 eol=crlf
+*.sql  eol=crlf
+*.sln  eol=crlf
+*.vbp  eol=crlf
+*.cls  eol=crlf
+*.frm  eol=crlf
+*.bas  eol=crlf
+*.ctl  eol=crlf
+# Mail: .eml is text with CRLF by its standard, .msg is Outlook's binary format
+*.eml  eol=crlf
+*.msg  -text
